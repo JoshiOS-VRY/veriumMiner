@@ -119,6 +119,10 @@ static volatile int g_shutdown = 0;
 static int watchdog_thr_id = -1;
 static time_t g_last_hash_tick;
 static time_t g_last_share_tick;
+static time_t g_last_job_tick;
+#define WORK_STALE_PAUSE_SEC     120
+#define WATCHDOG_STALL_SEC       (30 * 60)
+#define SHARE_STALL_JOB_GRACE_SEC 180
 static int opt_time_limit = 0;
 int opt_timeout = 300;
 static int opt_scantime = 5;
@@ -393,7 +397,13 @@ static void target_from_compact(uint32_t compact, uint32_t *target)
 /* Network block difficulty in the same units as work->sharediff (pdiff / DIFF1 scale). */
 static void calc_network_diff(struct work *work)
 {
-	uint32_t nbits = have_longpoll ? work->data[18] : swab32(work->data[18]);
+	uint32_t nbits;
+
+	/* Stratum + longpoll headers store compact nbits as a native uint32 at word 18. */
+	if (have_stratum || have_longpoll)
+		nbits = work->data[18];
+	else
+		nbits = swab32(work->data[18]);
 	uint32_t target[8];
 
 	target_from_compact(nbits, target);
@@ -821,8 +831,12 @@ static int share_result(int result, struct work *work, const char *reason)
 	global_hashrate = (uint64_t) hashrate;
 
 	block_share = net_diff && sharediff >= net_diff;
-	if (block_share && result)
+	if (block_share && result) {
 		solved_count++;
+		applog(LOG_NOTICE, "Block share accepted by pool (height target met)");
+	} else if (block_share && !result) {
+		applog(LOG_WARNING, "Block-level hash rejected by pool — check node/pool logs");
+	}
 
 	if (opt_showdiff)
 		sprintf(suppl, "diff %.3f", sharediff);
@@ -884,8 +898,8 @@ static bool submit_upstream_work(CURL *curl, struct work *work)
 
 	/* pass if the previous hash is not the current previous hash */
 	if (!submit_old && memcmp(&work->data[1], &g_work.data[1], 32)) {
-		if (opt_debug)
-			applog(LOG_DEBUG, "DEBUG: stale work detected, discarding");
+		applog(LOG_WARNING, "stale share after job change (not submitted)");
+		restart_threads();
 		return true;
 	}
 
@@ -1278,10 +1292,18 @@ err_out:
 	return false;
 }
 
-static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work)
+/*
+ * Build work->data for the current stratum job.
+ * - use_work_en2: hash with work->xnonce2 (miner-local extranonce roll); patches
+ *   the job coinbase for merkle only, does not advance the shared job counter.
+ * - bump_job_en2: after building, increment the pool job extranonce (stratum
+ *   thread only when handing out a new work unit).
+ */
+static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work,
+		bool use_work_en2, bool bump_job_en2)
 {
-	uint32_t extraheader[32] = { 0 };
 	uchar merkle_root[64] = { 0 };
+	uchar saved_en2[32];
 	int i, headersize = 0;
 
 	pthread_mutex_lock(&sctx->work_lock);
@@ -1290,7 +1312,14 @@ static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work)
 		work->job_id = strdup(sctx->job.job_id);
 		work->xnonce2_len = sctx->xnonce2_size;
 		work->xnonce2 = (uchar*) realloc(work->xnonce2, sctx->xnonce2_size);
-		memcpy(work->xnonce2, sctx->job.xnonce2, sctx->xnonce2_size);
+		if (!use_work_en2)
+			memcpy(work->xnonce2, sctx->job.xnonce2, sctx->xnonce2_size);
+		else if (sctx->job.xnonce2 && work->xnonce2_len <= sizeof(saved_en2)) {
+			/* Temporarily patch shared coinbase for merkle; restore after build. */
+			memcpy(saved_en2, sctx->job.xnonce2, work->xnonce2_len);
+			memcpy(sctx->job.xnonce2, work->xnonce2, work->xnonce2_len);
+		} else
+			use_work_en2 = false;
 
 		/* Generate merkle root */
 		switch (opt_algo) {
@@ -1304,23 +1333,34 @@ static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work)
             sha256d(merkle_root, merkle_root, 64);
 		}
 
-		/* Increment extranonce2 */
-		for (size_t t = 0; t < sctx->xnonce2_size && !(++sctx->job.xnonce2[t]); t++)
-			;
+		if (use_work_en2 && sctx->job.xnonce2)
+			memcpy(sctx->job.xnonce2, saved_en2, work->xnonce2_len);
 
-		/* Assemble block header */
-		memset(work->data, 0, 128);
-		work->data[0] = le32dec(sctx->job.version);
-		for (i = 0; i < 8; i++)
-			work->data[1 + i] = le32dec((uint32_t *) sctx->job.prevhash + i);
-		for (i = 0; i < 8; i++)
-			work->data[9 + i] = be32dec((uint32_t *) merkle_root + i);
+		/* Reserve the next extranonce2 for a future job; work keeps the en2 used above. */
+		if (bump_job_en2) {
+			for (size_t t = 0; t < sctx->xnonce2_size && !(++sctx->job.xnonce2[t]); t++)
+				;
+		}
 
-			work->data[17] = le32dec(sctx->job.ntime);
-			work->data[18] = le32dec(sctx->job.nbits);
-			// required ?
-			work->data[20] = 0x80000000;
-			work->data[31] = 0x00000280;
+		/* Assemble consensus block header (veriumd / pool serializeHeader layout).
+		 * PoW must match wallet solo mining — not the legacy cpuminer stratum layout. */
+		memset(work->data, 0, 80);
+		{
+			unsigned char *hdr = (unsigned char *) work->data;
+			unsigned char tmp[4];
+
+			hex2bin(tmp, sctx->job.version, 4);
+			*(uint32_t *)(hdr + 0) = be32dec(tmp);
+
+			hex2bin(hdr + 4, sctx->job.prevhash, 32);
+
+			memcpy(hdr + 36, merkle_root, 32);
+
+			*(uint32_t *)(hdr + 68) = le32dec(sctx->job.ntime);
+
+			hex2bin(tmp, sctx->job.nbits, 4);
+			*(uint32_t *)(hdr + 72) = be32dec(tmp);
+		}
 
 		calc_network_diff(work);
 
@@ -1350,7 +1390,8 @@ static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work)
 			if (net_diff > 0. && work->targetdiff > 0.)
 				snprintf(pctbuf, sizeof(pctbuf), " | pool %.4f%% of network",
 					100.0 * work->targetdiff / net_diff);
-			applog(LOG_WARNING, "Pool difficulty %.8g%s%s", stratum_diff, sdiff, pctbuf);
+			applog(LOG_WARNING, "Pool difficulty %.8g (wire %.8g)%s%s",
+				work->targetdiff, stratum_diff, sdiff, pctbuf);
 		}
 }
 
@@ -1470,7 +1511,7 @@ static void *miner_thread(void *userdata)
 		uint32_t *nonceptr = (uint32_t*) (((char*)work.data) + nonce_oft);
 
 		if (have_stratum) {
-			while (time(NULL) >= g_work_time + 120)
+			while (g_work_time && time(NULL) >= g_work_time + WORK_STALE_PAUSE_SEC)
 				sleep(1);
 
 			pthread_mutex_lock(&g_work_lock);
@@ -1479,8 +1520,23 @@ static void *miner_thread(void *userdata)
 			regen_work = regen_work || ( (*nonceptr) >= end_nonce
 				&& !( memcmp(&work.data[wkcmp_offset], &g_work.data[wkcmp_offset], wkcmp_sz) ||
 				 false ? memcmp(((uint8_t*) work.data) + 43, ((uint8_t*) g_work.data) + 43, 33) : 0));
-			if (regen_work) {
-				stratum_gen_work(&stratum, &g_work);
+			/* Nonce range exhausted on the same job: roll this thread's extranonce2
+			 * locally. Never rebuild g_work here — that corrupts shared job state. */
+			if (regen_work && !memcmp(&work.data[wkcmp_offset], &g_work.data[wkcmp_offset],
+					wkcmp_sz)) {
+				size_t t;
+				bool rolled = false;
+				for (t = 0; t < work.xnonce2_len; t++) {
+					if (!(++work.xnonce2[t]))
+						continue;
+					stratum_gen_work(&stratum, &work, true, false);
+					*nonceptr = 0xffffffffU / opt_n_threads * thr_id;
+					rolled = true;
+					break;
+				}
+				if (!rolled && !opt_quiet)
+					applog(LOG_WARNING, "extranonce2 exhausted; waiting for new pool job");
+				regen_work = false;
 			}
 
 		} else {
@@ -1640,6 +1696,8 @@ void restart_threads(void)
 {
 	int i;
 
+	if (have_stratum)
+		time(&g_work_time);
 	for (i = 0; i < opt_n_threads; i++)
 		work_restart[i].restart = 1;
 }
@@ -1813,14 +1871,16 @@ static void *watchdog_thread(void *userdata)
 	while (!g_shutdown) {
 		sleep(15);
 		if (have_stratum && g_last_hash_tick &&
-		    (time(NULL) - g_last_hash_tick) > 300) {
+		    (time(NULL) - g_last_hash_tick) > WATCHDOG_STALL_SEC) {
 			applog(LOG_WARNING, "mining stall detected, resetting pool connection");
 			stratum_need_reset = true;
 			g_last_hash_tick = time(NULL);
 		}
 		if (have_stratum && g_pool_connected && g_last_hash_tick &&
 		    stats_total_hps() > 0.0 && g_last_share_tick &&
-		    (time(NULL) - g_last_share_tick) > 300) {
+		    (!g_last_job_tick ||
+		     (time(NULL) - g_last_job_tick) > SHARE_STALL_JOB_GRACE_SEC) &&
+		    (time(NULL) - g_last_share_tick) > WATCHDOG_STALL_SEC) {
 			applog(LOG_WARNING,
 				"share stall detected while hashing, resetting pool connection");
 			stratum_need_reset = true;
@@ -1899,33 +1959,40 @@ static void *stratum_thread(void *userdata)
 			}
 		}
 
-		if (stratum.job.job_id &&
-			(!g_work_time || strcmp(stratum.job.job_id, g_work.job_id)) )
-		{
-			pthread_mutex_lock(&g_work_lock);
-			stratum_gen_work(&stratum, &g_work);
-			time(&g_work_time);
-			pthread_mutex_unlock(&g_work_lock);
+		if (stratum.job.job_id) {
+			bool new_job = !g_work.job_id ||
+				strcmp(stratum.job.job_id, g_work.job_id) != 0;
+			bool new_height = stratum.bloc_height != 0 &&
+				stratum.bloc_height != g_work.height;
 
-			if (stratum.job.clean) {
-				static uint32_t last_bloc_height;
-				if (!opt_quiet && last_bloc_height != stratum.bloc_height) {
-					last_bloc_height = stratum.bloc_height;
-					{
-						char detail[80];
-						if (net_diff > 0.)
-							snprintf(detail, sizeof(detail),
-								" · net diff %.6g", net_diff);
-						else
-							detail[0] = '\0';
-						logfmt_new_block(short_url, algo_names[opt_algo],
-							stratum.bloc_height, detail);
+			if (new_job || new_height || stratum.job.clean || !g_work_time) {
+				pthread_mutex_lock(&g_work_lock);
+				stratum_gen_work(&stratum, &g_work, false, true);
+				g_work.height = stratum.bloc_height;
+				time(&g_work_time);
+				g_last_job_tick = g_work_time;
+				pthread_mutex_unlock(&g_work_lock);
+
+				if (stratum.job.clean) {
+					static uint32_t last_bloc_height;
+					if (!opt_quiet && last_bloc_height != stratum.bloc_height) {
+						last_bloc_height = stratum.bloc_height;
+						{
+							char detail[80];
+							if (net_diff > 0.)
+								snprintf(detail, sizeof(detail),
+									" · net diff %.6g", net_diff);
+							else
+								detail[0] = '\0';
+							logfmt_new_block(short_url, algo_names[opt_algo],
+								stratum.bloc_height, detail);
+						}
 					}
-				}
-				restart_threads();
-			} else if (opt_debug && !opt_quiet) {
+				} else if (opt_debug && !opt_quiet && new_job) {
 					applog(LOG_BLUE, "%s asks job %d for block %d", short_url,
 						strtoul(stratum.job.job_id, NULL, 16), stratum.bloc_height);
+				}
+				restart_threads();
 			}
 		}
 

@@ -797,15 +797,22 @@ extern int scanhash_scrypt(int thr_id, struct work *work, uint32_t max_nonce, ui
 	uint32_t n = pdata[19] - 1;
 	const uint32_t Htarg = ptarget[7];
 	int throughput = scrypt_best_throughput();
-	int i;
+	int i, j;
 	
 #ifdef HAVE_SHA256_4WAY
 	if (sha256_use_4way())
 		throughput *= 4;
 #endif
 	
-	for (i = 0; i < throughput; i++)
-		memcpy(data + i * 20, pdata, 80);
+	/* Stratum pool: consensus header bytes + be32dec per word (matches veriumd scrypt²). */
+	if (have_stratum) {
+		for (i = 0; i < throughput; i++)
+			for (j = 0; j < 20; j++)
+				data[i * 20 + j] = be32dec((const unsigned char *) &pdata[j]);
+	} else {
+		for (i = 0; i < throughput; i++)
+			memcpy(data + i * 20, pdata, 80);
+	}
 	
 	sha256_init(midstate);
 	sha256_transform(midstate, data, 0);

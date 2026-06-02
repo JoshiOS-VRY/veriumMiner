@@ -13,6 +13,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdbool.h>
 
 #include "golden.h"
 
@@ -37,6 +38,8 @@ void work_set_target_ratio(void *work, uint32_t *hash)
 {
 	(void)work; (void)hash;
 }
+
+bool have_stratum = false;
 
 void applog(int prio, const char *fmt, ...)
 {
