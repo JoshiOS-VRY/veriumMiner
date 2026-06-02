@@ -135,10 +135,13 @@ if(VRM_USE_ASM AND VRM_ARCH_X86_64)
     endif()
 endif()
 
+# Distinct from the USE_ASM CMake option: option() leaves USE_ASM in the cache,
+# so #cmakedefine would wrongly #define USE_ASM on Apple/aarch64 where no .S
+# objects are linked.
 if(VRM_USE_ASM)
-    set(USE_ASM 1)
+    set(VRM_HAVE_ASM_FOR_CONFIG 1)
 else()
-    unset(USE_ASM)
+    set(VRM_HAVE_ASM_FOR_CONFIG 0)
 endif()
 
 configure_file(

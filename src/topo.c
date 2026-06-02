@@ -1,6 +1,10 @@
 /*
  * CPU topology: physical vs logical cores, L3 budget, affinity binding.
  */
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
+
 #include "topo.h"
 
 #include <stdint.h>

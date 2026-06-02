@@ -31,7 +31,9 @@
 #cmakedefine STDC_HEADERS 1
 
 /* Assembly / SIMD capabilities (set by CMake after compiler probes). */
-#cmakedefine USE_ASM 1
+#if @VRM_HAVE_ASM_FOR_CONFIG@
+#define USE_ASM 1
+#endif
 #cmakedefine USE_AVX 1
 #cmakedefine USE_AVX2 1
 #cmakedefine USE_XOP 1
