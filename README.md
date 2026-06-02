@@ -1,23 +1,138 @@
-veriumMiner
-===========
+Tippy Verium Miner
+==================
 
 A multi-threaded CPU miner for **Verium** using the scrypt² ("VeriHash")
-proof-of-work algorithm. Fork of [tpruvot](https://github.com/tpruvot)'s
-cpuminer-multi (see `AUTHORS` for contributors).
+proof-of-work algorithm.
 
-This tree has been modernized for 2026: a single **CMake** build replaces the
-old autotools/Visual Studio setup, the dead CryptoNight/Monero code has been
-removed, the OpenSSL dependency is gone, and CI builds and hash-tests every
-supported platform (x86-64, ARM64, Apple Silicon, Intel Mac, Windows, FreeBSD).
+This is the **Tippy** maintained fork of
+[FireWorm71/veriumMiner](https://github.com/fireworm71/veriumMiner), which
+focused the original Verium miner on scrypt²-only operation. That line traces
+back through Vericoin/Verium Reserve work to
+[tpruvot/cpuminer-multi](https://github.com/tpruvot/cpuminer-multi) (see
+`AUTHORS` for the full contributor list).
+
+**Maintainer:** [JoshiOS-VRY/veriumMiner](https://github.com/JoshiOS-VRY/veriumMiner)
+(`tippy-verium-miner` branch) — **tippy** &lt;tippytech@gmail.com&gt;
+
+The shipped binary is still named `cpuminer` for compatibility with existing
+configs and pool scripts.
+
+There are **no prebuilt release binaries** yet — install by cloning this repo and
+building with CMake (see [Quick start](#quick-start)).
 
 #### Table of contents
 
+* [Quick start](#quick-start)
+* [What's new in Tippy](#whats-new-in-tippy)
+* [Supported platforms](#supported-platforms)
 * [Dependencies](#dependencies)
 * [Build](#build)
 * [Build options](#build-options)
 * [Usage](#usage)
 * [Hash regression tests](#hash-regression-tests)
 * [License](#license)
+
+
+What's new in Tippy
+-------------------
+
+This fork modernizes and hardens the FireWorm71 tree for day-to-day mining and
+operations:
+
+* **CMake** build on all platforms (replaces autotools + legacy Visual Studio)
+* **CI** on every push: Linux (x86_64 GCC/Clang, ARM64), macOS (Apple Silicon +
+  Intel via `macos-15-intel`), Windows (MSYS2), and FreeBSD — plus hash
+  regression tests and `--cputest`
+* **No OpenSSL** — hashing uses the in-tree scrypt² core only
+* **Dead algorithms removed** — CryptoNight/Monero and other non-Verium code
+  stripped out
+* **CPU topology** — auto thread count (`-t 0`) from physical cores, L3 cache,
+  and RAM budget; topology-aware affinity binding
+* **Pool failover** — `--backup-url` with backoff and jitter
+* **Monitoring API** — `summary`, `json`, `health`, and Prometheus-style
+  `metrics` on port 4048
+* **Setup wizard** — `--setup` writes a starter `cpuminer-conf.json`
+* **Portable macOS / ARM64** — Apple Silicon and Linux ARM64 use the validated C
+  scrypt core (assembly is x86/x86-64 and 32-bit ARM only)
+
+See [`docs/AUDIT_IMPLEMENTATION.md`](docs/AUDIT_IMPLEMENTATION.md) for the full
+audit-to-code mapping.
+
+
+Quick start
+-----------
+
+### 1. Get the source
+
+```sh
+git clone https://github.com/JoshiOS-VRY/veriumMiner.git
+cd veriumMiner
+git checkout tippy-verium-miner   # Tippy fork branch (use main if that is default)
+```
+
+### 2. Build
+
+Linux (Debian/Ubuntu example):
+
+```sh
+sudo apt-get install -y cmake build-essential libcurl4-openssl-dev libjansson-dev
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+```
+
+Other platforms: see [Build](#build) below.
+
+Optional install to `/usr/local/bin`:
+
+```sh
+cmake --install build
+# then run: cpuminer ...
+```
+
+### 3. Configure and run
+
+**First run (wizard)** — writes `~/.cpuminer/cpuminer-conf.json` (or the Windows
+path below):
+
+```sh
+./build/cpuminer --setup
+./build/cpuminer
+```
+
+**One-shot from the command line** (no config file):
+
+```sh
+./build/cpuminer -o stratum+tcp://POOL:PORT -u WALLET.WORKER -p x -t 0
+```
+
+`-t 0` picks a thread count from CPU topology and cache size. Use `-t 4` (etc.)
+to set it manually. The miner exits with an error if no pool URL is given and no
+config file is found.
+
+**Example config** — copy and edit [`cpuminer-conf.json`](cpuminer-conf.json),
+then:
+
+```sh
+./build/cpuminer -c /path/to/cpuminer-conf.json
+```
+
+On Windows, use `.\build\cpuminer.exe` and put MinGW on `PATH` as in
+[Windows](#windows-msys2--mingw-w64).
+
+
+Supported platforms
+-------------------
+
+| Platform | CI job | Notes |
+|----------|--------|-------|
+| Linux x86_64 | Linux x86_64 (GCC/Clang) | SSE2/AVX/AVX2 assembly when enabled |
+| Linux ARM64 | Linux ARM64 (GCC) | Portable C core |
+| macOS Apple Silicon | macOS Apple Silicon | Portable C core (`macos-14`) |
+| macOS Intel | macOS Intel | Portable C core (`macos-15-intel`) |
+| Windows x86_64 | windows-mingw64 | MSYS2 / MinGW-w64 |
+| FreeBSD x86_64 | freebsd-x86_64 | VM-based CI |
+
+**Version:** 1.4.0 (see `CMakeLists.txt`).
 
 
 Dependencies
@@ -100,6 +215,13 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(sysctl -n hw.ncpu)
 ```
 
+### Docker
+
+```sh
+docker build -t veriumminer .
+docker run --rm veriumminer -o stratum+tcp://POOL:PORT -u WALLET.WORKER -p x
+```
+
 
 Build options
 =============
@@ -122,13 +244,14 @@ cmake --build build -j
 
 ### CPU feature selection
 
-The miner detects CPU capabilities at runtime, so one binary runs everywhere:
+On x86-64 Linux and Windows, the miner detects CPU capabilities at runtime:
 
 * SSE2 → 1-way scrypt
 * AVX  → 3-way scrypt
 * AVX2 → 6-way scrypt
 
-No manual flags are needed to choose between them.
+No manual flags are needed to choose between them. macOS and ARM64 always use
+the portable C implementation.
 
 
 Usage
@@ -151,8 +274,7 @@ Run `./build/cpuminer --help` for the full list of options. Common ones:
 * `-c, --config` — JSON config file (see `cpuminer-conf.json`)
 
 Hashrate is reported in **hashes per minute (H/m)** in logs and the status
-panel. The monitoring API also exposes raw **hashes per second (H/s)** as
-`hashrate_hps` for integrations.
+panel (`HPM`, `HPM_AVG60`, `HPM_AVG900` in the `summary` API).
 
 ### Config file location
 
@@ -166,14 +288,25 @@ to the executable. Use `--setup` or `-c` to point at a custom file.
 
 ### Monitoring API (port 4048)
 
-The built-in API exposes:
+Default bind: `127.0.0.1:4048` (override with `-b` / `"api-bind"` in config).
+Send a command name on one line; the miner replies and closes the connection.
 
-* `summary` — classic key/value stats (includes 1m and 15m average hashrate)
-* `json` — JSON snapshot for dashboards
-* `health` — quick health probe
-* `metrics` — Prometheus-style text metrics
+| Command | Format | Hashrate fields |
+|---------|--------|-----------------|
+| `summary` | `KEY=value;...` | `HPM`, `HPM_AVG60`, `HPM_AVG900` (hashes per **minute**) |
+| `json` | JSON object | `hashrate_hps`, `hashrate_ema_60s`, `hashrate_ema_900s` (per **second**) |
+| `health` | `KEY=value;...` | pool/accept/temp probe |
+| `metrics` | Prometheus text | `verium_hashrate_hps`, `verium_hashrate_ema60`, … |
 
-Example: `echo summary | nc 127.0.0.1 4048`
+Examples:
+
+```sh
+printf 'summary\n' | nc -w 2 127.0.0.1 4048
+printf 'json\n'    | nc -w 2 127.0.0.1 4048
+```
+
+On macOS, `nc` is available; use the same `printf` form (BSD `nc` does not accept
+`echo ... | nc` the same way on all versions).
 
 ### Connecting through a proxy
 
@@ -204,6 +337,24 @@ You can also print the canonical empty-buffer digest directly:
 
 To lock the golden vector for your build, run `test_hash` once, copy the value
 from its `RECORD:` line into [`tests/golden.h`](tests/golden.h), and rebuild.
+
+
+Fork lineage
+============
+
+```
+tpruvot/cpuminer-multi
+    └── Verium / Vericoin community (scrypt² focus)
+            └── fireworm71/veriumMiner
+                    └── JoshiOS-VRY/veriumMiner  ← Tippy Verium Miner (this tree)
+```
+
+To track upstream fixes from FireWorm71:
+
+```sh
+git remote add upstream https://github.com/fireworm71/veriumMiner.git
+git fetch upstream
+```
 
 
 License

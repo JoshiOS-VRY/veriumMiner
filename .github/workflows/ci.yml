@@ -58,7 +58,8 @@ jobs:
   # ---------------------------------------------------------------------
   windows:
     name: windows-mingw64
-    runs-on: windows-latest
+    # windows-latest → windows-2025-vs2026 by 2026-06-15; this job uses MSYS2 MinGW, not VS.
+    runs-on: windows-2025-vs2026
     defaults:
       run:
         shell: msys2 {0}
