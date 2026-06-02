@@ -1,6 +1,7 @@
 #ifndef VERIUM_LOGFMT_H
 #define VERIUM_LOGFMT_H
 
+#include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
 

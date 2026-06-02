@@ -144,8 +144,15 @@ void logfmt_new_block(const char *source, const char *algo, uint32_t height,
 	const char *extra = detail;
 
 	if (extra) {
-		while (*extra == ' ' || *extra == ',' || *extra == '·')
-			extra++;
+		while (*extra) {
+			if (*extra == ' ' || *extra == ',')
+				extra++;
+			else if ((unsigned char)extra[0] == 0xC2 &&
+			    (unsigned char)extra[1] == 0xB7)
+				extra += 2;
+			else
+				break;
+		}
 	}
 	if (extra && extra[0])
 		applog(LOG_BLUE, "New block #%u · %s · %s · %s",
