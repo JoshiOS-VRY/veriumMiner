@@ -95,6 +95,7 @@ bool opt_protocol = false;
 bool opt_benchmark = false;
 bool opt_redirect = true;
 bool opt_showdiff = false;
+bool opt_dump_share_header = false;
 bool opt_extranonce = true;
 bool want_longpoll = true;
 bool have_longpoll = false;
@@ -216,7 +217,8 @@ Options:\n\
       --setup           Interactive first-run configuration wizard\n\
   -D, --debug           Debug logging\n\
   -P, --protocol-dump   Verbose Stratum protocol log\n\
-      --show-diff       Show share difficulty in logs\n"
+      --show-diff       Show share difficulty in logs\n\
+      --dump-share-header  Log the 80-byte consensus header + submit params per share\n"
 #ifdef HAVE_SYSLOG_H
 "\
   -S, --syslog          use system log for output messages\n"
@@ -251,6 +253,7 @@ static struct option const options[] = {
 	{ "status-interval", 1, NULL, 1072 },
 	{ "profile", 1, NULL, 1073 },
 	{ "setup", 0, NULL, 1074 },
+	{ "dump-share-header", 0, NULL, 1075 },
 	{ "api-remote", 0, NULL, 1030 },
 	{ "background", 0, NULL, 'B' },
 	{ "benchmark", 0, NULL, 1005 },
@@ -927,6 +930,17 @@ static bool submit_upstream_work(CURL *curl, struct work *work)
 		snprintf(s, JSON_BUF_LEN,
 				"{\"method\": \"mining.submit\", \"params\": [\"%s\", \"%s\", \"%s\", \"%s\", \"%s\"], \"id\":4}",
 				rpc_user, work->job_id, xnonce2str, ntimestr, noncestr);
+
+		/* --dump-share-header: emit the exact 80-byte consensus header that was
+		 * hashed plus the submit params, so the pool's reconstructShare output
+		 * can be byte-compared offline (see verium-pool verify-share-replay). */
+		if (opt_dump_share_header) {
+			char hdrhex[161];
+			bin2hex(hdrhex, (const unsigned char *) work->data, 80);
+			applog(LOG_NOTICE,
+				"SHARE-DUMP job_id=%s en2=%s ntime=%s nonce=%s consensusHeader=%s",
+				work->job_id, xnonce2str, ntimestr, noncestr, hdrhex);
+		}
 		free(xnonce2str);
 
 		// store to keep/display solved blocs (work struct not linked on accept notification)
@@ -2163,6 +2177,9 @@ void parse_arg(int key, char *arg)
 		break;
 	case 1074:
 		opt_setup = true;
+		break;
+	case 1075:
+		opt_dump_share_header = true;
 		break;
 	case 'B':
 		opt_background = true;
