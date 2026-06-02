@@ -47,6 +47,7 @@
 #include "miner.h"
 #include "topo.h"
 #include "stats.h"
+#include "logfmt.h"
 #include "pools.h"
 #include "onboard.h"
 
@@ -509,8 +510,8 @@ static bool get_mininginfo(CURL *curl, struct work *work)
 							strcat(netinfo, ", net ");
 							strcat(netinfo, srate);
 						}
-						applog(LOG_BLUE, "%s block %d, %s",
-							algo_names[opt_algo], work->height, netinfo);
+						logfmt_new_block("network", algo_names[opt_algo],
+							work->height, netinfo);
 					}
 				}
 			}
@@ -807,7 +808,6 @@ static int share_result(int result, struct work *work, const char *reason)
 	double hashrate;
 	double sharediff = work ? work->sharediff : stratum.sharediff;
 	int i;
-	const char *status;
 	bool block_share;
 
 	hashrate = 0.;
@@ -831,37 +831,23 @@ static int share_result(int result, struct work *work, const char *reason)
 
 	stats_record_share(result != 0);
 
-	if (block_share)
-		status = result ? "block share accepted" : "block share rejected";
-	else
-		status = result ? "share accepted" : "share rejected";
-
 	switch (opt_algo) {
 	default:
 		stats_format_hpm(hashrate, rate, sizeof(rate));
 		format_pct_to_target(pctbuf, sizeof(pctbuf), work, ", ");
-		if (use_colors) {
-			applog(LOG_NOTICE, "%s%s: %lu/%lu (%s), %s%s",
-				result ? CL_GRN : CL_RED, status,
-				(unsigned long)accepted_count,
-				(unsigned long)(accepted_count + rejected_count),
-				suppl, rate, pctbuf);
-		} else {
-			applog(LOG_NOTICE, "%s: %lu/%lu (%s), %s%s",
-				status,
-				(unsigned long)accepted_count,
-				(unsigned long)(accepted_count + rejected_count),
-				suppl, rate, pctbuf);
-		}
+		logfmt_share(result != 0, block_share,
+			(unsigned long)accepted_count,
+			(unsigned long)(accepted_count + rejected_count),
+			suppl, rate, pctbuf);
 		if (!result && rejected_count > 3 &&
 		    (100. * accepted_count / (accepted_count + rejected_count)) < 90.0)
-			applog(LOG_WARNING, "elevated reject rate (%.1f%% accepted)",
+			applog(LOG_WARNING, "High reject rate — only %.1f%% of shares accepted",
 				stats_accept_pct());
 		break;
 	}
 
 	if (reason) {
-		applog(LOG_WARNING, "reject reason: %s", reason);
+		applog(LOG_WARNING, "Share rejected: %s", reason);
 		if (strstr(reason, "temporarily banned")) {
 			applog(LOG_ERR,
 				"pool IP ban (too many rejects); disconnecting — wait ~10 min or restart pool stratum if misconfigured");
@@ -1364,7 +1350,7 @@ static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work)
 			if (net_diff > 0. && work->targetdiff > 0.)
 				snprintf(pctbuf, sizeof(pctbuf), " | pool %.4f%% of network",
 					100.0 * work->targetdiff / net_diff);
-			applog(LOG_WARNING, "Stratum difficulty set to %g%s%s", stratum_diff, sdiff, pctbuf);
+			applog(LOG_WARNING, "Pool difficulty %.8g%s%s", stratum_diff, sdiff, pctbuf);
 		}
 }
 
@@ -1744,7 +1730,12 @@ start:
 						}
 						if (opt_showdiff)
 							sprintf(&netinfo[strlen(netinfo)], ", target %.3f", g_work.targetdiff);
-						applog(LOG_BLUE, "%s detected new block%s", short_url, netinfo);
+						{
+							char detail[80];
+							snprintf(detail, sizeof(detail), "%s", netinfo);
+							logfmt_new_block(short_url, algo_names[opt_algo],
+								g_work.height, detail);
+						}
 					}
 					time(&g_work_time);
 					restart_threads();
@@ -1849,7 +1840,7 @@ static void *stratum_thread(void *userdata)
 	stratum.url = (char*) tq_pop(mythr->q, NULL);
 	if (!stratum.url)
 		goto out;
-	applog(LOG_INFO, "Starting Stratum on %s", stratum.url);
+	applog(LOG_INFO, "Connecting to pool %s", stratum.url);
 
 	while (1) {
 		int failures = 0;
@@ -1860,7 +1851,7 @@ static void *stratum_thread(void *userdata)
 			if (strcmp(stratum.url, rpc_url)) {
 				free(stratum.url);
 				stratum.url = strdup(rpc_url);
-				applog(LOG_BLUE, "Connection changed to %s", short_url);
+				applog(LOG_BLUE, "Pool connection: %s", short_url);
 			} else if (!opt_quiet) {
 				applog(LOG_DEBUG, "Stratum connection reset");
 			}
@@ -1888,7 +1879,7 @@ static void *stratum_thread(void *userdata)
 						rpc_url = strdup(nurl);
 						short_url = strstr(rpc_url, "://");
 						short_url = short_url ? short_url + 3 : rpc_url;
-						applog(LOG_NOTICE, "failover to backup pool %s", short_url);
+						applog(LOG_NOTICE, "Failover to backup pool %s", short_url);
 						stratum_need_reset = true;
 						failures = 0;
 					} else {
@@ -1920,12 +1911,16 @@ static void *stratum_thread(void *userdata)
 				static uint32_t last_bloc_height;
 				if (!opt_quiet && last_bloc_height != stratum.bloc_height) {
 					last_bloc_height = stratum.bloc_height;
-					if (net_diff > 0.)
-						applog(LOG_BLUE, "%s block %d, network diff %.6g", algo_names[opt_algo],
-							stratum.bloc_height, net_diff);
-					else
-						applog(LOG_BLUE, "%s %s block %d", short_url, algo_names[opt_algo],
-							stratum.bloc_height);
+					{
+						char detail[80];
+						if (net_diff > 0.)
+							snprintf(detail, sizeof(detail),
+								" · net diff %.6g", net_diff);
+						else
+							detail[0] = '\0';
+						logfmt_new_block(short_url, algo_names[opt_algo],
+							stratum.bloc_height, detail);
+					}
 				}
 				restart_threads();
 			} else if (opt_debug && !opt_quiet) {
@@ -2818,10 +2813,8 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	applog(LOG_INFO, "%d miner threads started, "
-		"using '%s' algorithm.",
-		opt_n_threads,
-		algo_names[opt_algo]);
+	applog(LOG_INFO, "%d mining threads started · algorithm %s",
+		opt_n_threads, algo_names[opt_algo]);
 
 	/* main loop - simply wait for workio thread to exit */
 	pthread_join(thr_info[work_thr_id].pth, NULL);

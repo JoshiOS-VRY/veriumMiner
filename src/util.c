@@ -43,6 +43,7 @@
 
 #include "miner.h"
 #include "stats.h"
+#include "logfmt.h"
 #include "elist.h"
 
 extern pthread_mutex_t stats_lock;
@@ -108,7 +109,10 @@ void applog(int prio, const char *fmt, ...)
 	if (0) {}
 #endif
 	else {
-		const char* color = "";
+		const char *ts_color = use_colors ? CL_GRY : "";
+		const char *tag_color = logfmt_tag_color(prio);
+		const char *msg_color = "";
+		const char *tag = logfmt_tag(prio);
 		char *f;
 		int len;
 		struct tm tm;
@@ -116,33 +120,35 @@ void applog(int prio, const char *fmt, ...)
 
 		localtime_r(&now, &tm);
 
+		if (prio == LOG_BLUE)
+			prio = LOG_NOTICE;
+
 		switch (prio) {
-			case LOG_ERR:     color = CL_RED; break;
-			case LOG_WARNING: color = CL_YLW; break;
-			case LOG_NOTICE:  color = CL_WHT; break;
-			case LOG_INFO:    color = ""; break;
-			case LOG_DEBUG:   color = CL_GRY; break;
-
-			case LOG_BLUE:
-				prio = LOG_NOTICE;
-				color = CL_CYN;
-				break;
+			case LOG_ERR:     msg_color = use_colors ? CL_WHT : ""; break;
+			case LOG_WARNING: msg_color = use_colors ? CL_YL2 : ""; break;
+			case LOG_NOTICE:  msg_color = use_colors ? CL_SIL : ""; break;
+			case LOG_INFO:    msg_color = use_colors ? CL_CY2 : ""; break;
+			case LOG_DEBUG:   msg_color = use_colors ? CL_GRY : ""; break;
+			default:          msg_color = ""; break;
 		}
-		if (!use_colors)
-			color = "";
+		if (!use_colors) {
+			tag_color = "";
+			msg_color = "";
+		}
 
-		len = 64 + (int) strlen(fmt) + 2;
+		len = 96 + (int) strlen(fmt) + 2;
 		f = (char*) malloc(len);
-		sprintf(f, "[%d-%02d-%02d %02d:%02d:%02d]%s %s%s\n",
+		sprintf(f, "%s[%d-%02d-%02d %02d:%02d:%02d]%s %s%s%s %s%s\n",
+			ts_color,
 			tm.tm_year + 1900,
 			tm.tm_mon + 1,
 			tm.tm_mday,
 			tm.tm_hour,
 			tm.tm_min,
 			tm.tm_sec,
-			color,
-			fmt,
-			use_colors ? CL_N : ""
+			use_colors ? CL_N : "",
+			tag_color, tag, use_colors ? CL_N : "",
+			msg_color, fmt, use_colors ? CL_N : ""
 		);
 		pthread_mutex_lock(&applog_lock);
 		vfprintf(stdout, f, ap);	/* atomic write to stdout */
@@ -1565,7 +1571,7 @@ static bool stratum_set_difficulty(struct stratum_ctx *sctx, json_t *params)
 
 	/* Pool vardiff is authoritative; undo auto factor drops from legacy rejects. */
 	if (opt_diff_factor < 1.0) {
-		applog(LOG_NOTICE, "pool set_difficulty %.8g; resetting diff factor from %.4f to 1",
+		applog(LOG_NOTICE, "Pool difficulty %.8g (reset local factor %.4f -> 1)",
 			diff, opt_diff_factor);
 		opt_diff_factor = 1.0;
 	}
@@ -1599,7 +1605,7 @@ static bool stratum_reconnect(struct stratum_ctx *sctx, json_t *params)
 		return true;
 	}
 
-	applog(LOG_NOTICE, "Server requested reconnection to %s", url);
+	applog(LOG_NOTICE, "Pool requested reconnect to %s", url);
 
 	free(sctx->url);
 	sctx->url = url;
@@ -1824,7 +1830,7 @@ static bool stratum_show_message(struct stratum_ctx *sctx, json_t *id, json_t *p
 
 	val = json_array_get(params, 0);
 	if (val)
-		applog(LOG_NOTICE, "MESSAGE FROM SERVER: %s", json_string_value(val));
+		applog(LOG_NOTICE, "Pool message: %s", json_string_value(val));
 	
 	if (!id || json_is_null(id))
 		return true;

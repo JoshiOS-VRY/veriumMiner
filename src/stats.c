@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "miner.h"
+#include "logfmt.h"
 #include "topo.h"
 
 time_t g_miner_start_time;
@@ -214,26 +215,9 @@ void stats_maybe_print_panel(bool force)
 	temp = cpu_temp(0);
 	tp = topo_get();
 
-	if (temp < 0.0f) {
-		applog(LOG_BLUE,
-			"status | %s | worker %s | %s | now %s | avg(1m) %s | avg(15m) %s | "
-			"shares %u/%u (%.1f%%) | temp n/a | threads %d/%d phys | uptime %lds",
-			g_pool_connected ? "pool ok" : g_pool_status,
-			g_worker_name[0] ? g_worker_name : "-",
-			algo,
-			rate_now, rate_avg, rate_15m,
-			(unsigned)accepted_count,
-			(unsigned)(accepted_count + rejected_count),
-			stats_accept_pct(),
-			g_n_threads, tp ? tp->physical_cpus : g_n_threads,
-			(long)(now - g_miner_start_time));
-		return;
-	}
-
-	applog(LOG_BLUE,
-		"status | %s | worker %s | %s | now %s | avg(1m) %s | avg(15m) %s | "
-		"shares %u/%u (%.1f%%) | temp %.0fC | threads %d/%d phys | uptime %lds",
-		g_pool_connected ? "pool ok" : g_pool_status,
+	logfmt_status_panel(
+		g_pool_connected != 0,
+		g_pool_status,
 		g_worker_name[0] ? g_worker_name : "-",
 		algo,
 		rate_now, rate_avg, rate_15m,
@@ -241,7 +225,8 @@ void stats_maybe_print_panel(bool force)
 		(unsigned)(accepted_count + rejected_count),
 		stats_accept_pct(),
 		temp,
-		g_n_threads, tp ? tp->physical_cpus : g_n_threads,
+		g_n_threads,
+		tp ? tp->physical_cpus : g_n_threads,
 		(long)(now - g_miner_start_time));
 }
 

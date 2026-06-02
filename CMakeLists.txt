@@ -170,6 +170,7 @@ set(VRM_SOURCES
     src/sysinfos.c
     src/topo.c
     src/stats.c
+    src/logfmt.c
     src/pools.c
     src/onboard.c
     src/sha1.c
