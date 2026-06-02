@@ -138,6 +138,41 @@ void logfmt_status_panel(bool pool_ok, const char *pool_status,
 		threads, phys_cpus, uptime);
 }
 
+void logfmt_block_found(uint32_t height, double share_diff, double network_diff)
+{
+	const char *h = height ? "" : " (height pending)";
+
+	if (use_colors) {
+		applog(LOG_NOTICE,
+			"%s━━━ BLOCK SHARE ACCEPTED ━━━%s  Pool will submit this block to the network%s",
+			CL_LGR, CL_N, h);
+		if (height)
+			applog(LOG_NOTICE,
+				"    Height %u · share diff %.6g · network diff %.6g",
+				(unsigned)height, share_diff, network_diff);
+		else
+			applog(LOG_NOTICE,
+				"    Share diff %.6g · network diff %.6g",
+				share_diff, network_diff);
+		applog(LOG_NOTICE,
+			"    Reward matures after pool confirmations; track status on the pool blocks page.");
+	} else {
+		applog(LOG_NOTICE,
+			"BLOCK SHARE ACCEPTED — pool will submit this block to the network%s",
+			h);
+		if (height)
+			applog(LOG_NOTICE,
+				"Height %u · share diff %.6g · network diff %.6g",
+				(unsigned)height, share_diff, network_diff);
+		else
+			applog(LOG_NOTICE,
+				"Share diff %.6g · network diff %.6g",
+				share_diff, network_diff);
+		applog(LOG_NOTICE,
+			"Reward matures after pool confirmations; track status on the pool blocks page.");
+	}
+}
+
 void logfmt_new_block(const char *source, const char *algo, uint32_t height,
 	const char *detail)
 {

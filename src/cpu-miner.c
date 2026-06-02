@@ -167,6 +167,47 @@ double stratum_diff = 0.;
 double net_diff = 0.;
 double net_hashrate = 0.;
 uint64_t net_blocks = 0;
+
+/* Stratum mining.submit responses are async; match each response to its submit. */
+struct share_submit_meta {
+	bool block_share;
+	double sharediff;
+	uint32_t height;
+};
+#define SHARE_SUBMIT_META_Q 64
+static struct share_submit_meta share_submit_meta_q[SHARE_SUBMIT_META_Q];
+static unsigned share_submit_meta_head;
+static unsigned share_submit_meta_tail;
+static pthread_mutex_t share_submit_meta_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void share_submit_meta_push(bool block_share, double sharediff, uint32_t height)
+{
+	unsigned next;
+
+	pthread_mutex_lock(&share_submit_meta_lock);
+	next = (share_submit_meta_tail + 1) % SHARE_SUBMIT_META_Q;
+	if (next == share_submit_meta_head)
+		share_submit_meta_head = (share_submit_meta_head + 1) % SHARE_SUBMIT_META_Q;
+	share_submit_meta_q[share_submit_meta_tail].block_share = block_share;
+	share_submit_meta_q[share_submit_meta_tail].sharediff = sharediff;
+	share_submit_meta_q[share_submit_meta_tail].height = height;
+	share_submit_meta_tail = next;
+	pthread_mutex_unlock(&share_submit_meta_lock);
+}
+
+static bool share_submit_meta_pop(struct share_submit_meta *out)
+{
+	bool ok = false;
+
+	pthread_mutex_lock(&share_submit_meta_lock);
+	if (share_submit_meta_head != share_submit_meta_tail) {
+		*out = share_submit_meta_q[share_submit_meta_head];
+		share_submit_meta_head = (share_submit_meta_head + 1) % SHARE_SUBMIT_META_Q;
+		ok = true;
+	}
+	pthread_mutex_unlock(&share_submit_meta_lock);
+	return ok;
+}
 // conditional mining
 bool conditional_state[MAX_CPUS] = { 0 };
 double opt_max_temp = 0.0;
@@ -819,9 +860,11 @@ static int share_result(int result, struct work *work, const char *reason)
 	char pctbuf[48] = { 0 };
 	char rate[32];
 	double hashrate;
-	double sharediff = work ? work->sharediff : stratum.sharediff;
+	double sharediff;
+	uint32_t block_height = 0;
 	int i;
 	bool block_share;
+	struct share_submit_meta meta;
 
 	hashrate = 0.;
 	pthread_mutex_lock(&stats_lock);
@@ -833,12 +876,27 @@ static int share_result(int result, struct work *work, const char *reason)
 
 	global_hashrate = (uint64_t) hashrate;
 
-	block_share = net_diff && sharediff >= net_diff;
+	if (work) {
+		sharediff = work->sharediff;
+		block_share = net_diff > 0. && sharediff >= net_diff;
+		block_height = work->height;
+	} else if (share_submit_meta_pop(&meta)) {
+		sharediff = meta.sharediff;
+		block_share = meta.block_share;
+		block_height = meta.height;
+	} else {
+		sharediff = stratum.sharediff;
+		block_share = net_diff > 0. && sharediff >= net_diff;
+		block_height = stratum.bloc_height;
+	}
+
 	if (block_share && result) {
 		solved_count++;
-		applog(LOG_NOTICE, "Block share accepted by pool (height target met)");
+		logfmt_block_found(block_height, sharediff, net_diff);
 	} else if (block_share && !result) {
-		applog(LOG_WARNING, "Block-level hash rejected by pool — check node/pool logs");
+		applog(LOG_WARNING,
+			"Block-level share rejected by pool — check stratum/node logs (height %u)",
+			(unsigned)block_height);
 	}
 
 	if (opt_showdiff)
@@ -943,10 +1001,18 @@ static bool submit_upstream_work(CURL *curl, struct work *work)
 		}
 		free(xnonce2str);
 
-		// store to keep/display solved blocs (work struct not linked on accept notification)
-		stratum.sharediff = work->sharediff;
+		/* Record metadata before send; stratum responses arrive async without work. */
+		{
+			bool block_share = net_diff > 0. && work->sharediff >= net_diff;
+			uint32_t height = work->height ? work->height : (uint32_t)stratum.bloc_height;
+
+			share_submit_meta_push(block_share, work->sharediff, height);
+			stratum.sharediff = work->sharediff;
+		}
 
 		if (unlikely(!stratum_send_line(&stratum, s))) {
+			struct share_submit_meta drop;
+			share_submit_meta_pop(&drop);
 			applog(LOG_ERR, "submit_upstream_work stratum_send_line failed");
 			goto out;
 		}
