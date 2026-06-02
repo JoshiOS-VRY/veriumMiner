@@ -275,6 +275,8 @@ extern uint64_t global_hashrate;
 extern double stratum_diff;
 extern double net_diff;
 extern double net_hashrate;
+extern double opt_diff_factor;
+extern void restart_threads(void);
 
 #define JSON_RPC_LONGPOLL	(1 << 0)
 #define JSON_RPC_QUIET_404	(1 << 1)

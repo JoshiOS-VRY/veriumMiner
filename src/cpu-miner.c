@@ -117,6 +117,7 @@ static int opt_profile = 0; /* 0=background, 1=dedicated */
 static volatile int g_shutdown = 0;
 static int watchdog_thr_id = -1;
 static time_t g_last_hash_tick;
+static time_t g_last_share_tick;
 static int opt_time_limit = 0;
 int opt_timeout = 300;
 static int opt_scantime = 5;
@@ -378,6 +379,38 @@ static void calc_network_diff(struct work *work)
 	if (opt_debug_diff)
 		applog(LOG_DEBUG, "net diff: %f -> shift %u, bits %08x", d, shift, bits);
 	net_diff = d;
+}
+
+/* Pool/effective difficulty of the share (same units as net_diff). */
+static double effective_pool_diff(const struct work *work)
+{
+	if (work && work->sharediff > 0.)
+		return work->sharediff;
+	if (work && work->targetdiff > 0.)
+		return work->targetdiff;
+	if (stratum_diff > 0.) {
+		if (opt_algo == ALGO_SCRYPT)
+			return stratum_diff / (65536.0 * opt_diff_factor);
+		return stratum_diff / opt_diff_factor;
+	}
+	return 0.;
+}
+
+static void format_pct_to_target(char *buf, size_t bufsz, const struct work *work, const char *prefix)
+{
+	double pct;
+
+	buf[0] = '\0';
+	if (net_diff <= 0.)
+		return;
+	const double submit = effective_pool_diff(work);
+	if (submit <= 0.)
+		return;
+	pct = 100.0 * submit / net_diff;
+	if (pct >= 0.01)
+		snprintf(buf, bufsz, "%spct to target %.2f%%", prefix, pct);
+	else
+		snprintf(buf, bufsz, "%spct to target %.4f%%", prefix, pct);
 }
 
 static bool work_decode(const json_t *val, struct work *work)
@@ -760,6 +793,7 @@ out:
 static int share_result(int result, struct work *work, const char *reason)
 {
 	char suppl[32] = { 0 };
+	char pctbuf[48] = { 0 };
 	char rate[32];
 	double hashrate;
 	double sharediff = work ? work->sharediff : stratum.sharediff;
@@ -772,6 +806,7 @@ static int share_result(int result, struct work *work, const char *reason)
 	for (i = 0; i < opt_n_threads; i++)
 		hashrate += thr_hashrates[i];
 	result ? accepted_count++ : rejected_count++;
+	g_last_share_tick = time(NULL);
 	pthread_mutex_unlock(&stats_lock);
 
 	global_hashrate = (uint64_t) hashrate;
@@ -795,18 +830,19 @@ static int share_result(int result, struct work *work, const char *reason)
 	switch (opt_algo) {
 	default:
 		stats_format_hpm(hashrate, rate, sizeof(rate));
+		format_pct_to_target(pctbuf, sizeof(pctbuf), work, ", ");
 		if (use_colors) {
-			applog(LOG_NOTICE, "%s%s: %lu/%lu (%s), %s",
+			applog(LOG_NOTICE, "%s%s: %lu/%lu (%s), %s%s",
 				result ? CL_GRN : CL_RED, status,
 				(unsigned long)accepted_count,
 				(unsigned long)(accepted_count + rejected_count),
-				suppl, rate);
+				suppl, rate, pctbuf);
 		} else {
-			applog(LOG_NOTICE, "%s: %lu/%lu (%s), %s",
+			applog(LOG_NOTICE, "%s: %lu/%lu (%s), %s%s",
 				status,
 				(unsigned long)accepted_count,
 				(unsigned long)(accepted_count + rejected_count),
-				suppl, rate);
+				suppl, rate, pctbuf);
 		}
 		if (!result && rejected_count > 3 &&
 		    (100. * accepted_count / (accepted_count + rejected_count)) < 90.0)
@@ -818,8 +854,20 @@ static int share_result(int result, struct work *work, const char *reason)
 	if (reason) {
 		applog(LOG_WARNING, "reject reason: %s", reason);
 		if (strncmp(reason, "low difficulty share", 20) == 0) {
-			opt_diff_factor = (opt_diff_factor * 2.0) / 3.0;
-			applog(LOG_WARNING, "difficulty factor reduced to %.2f", opt_diff_factor);
+			/* Stratum pool already sets difficulty; shrinking factor only
+			 * raises the local target (diff/factor) and causes reject storms. */
+			if (have_stratum) {
+				if (opt_diff_factor < 1.0) {
+					applog(LOG_WARNING,
+						"resetting diff factor to 1 (was %.4f); resyncing to pool difficulty",
+						opt_diff_factor);
+					opt_diff_factor = 1.0;
+				}
+				restart_threads();
+			} else {
+				opt_diff_factor = (opt_diff_factor * 2.0) / 3.0;
+				applog(LOG_WARNING, "difficulty factor reduced to %.2f", opt_diff_factor);
+			}
 			return 0;
 		}
 	}
@@ -1273,8 +1321,7 @@ static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work)
 			work->data[20] = 0x80000000;
 			work->data[31] = 0x00000280;
 
-		if (opt_showdiff || opt_max_diff > 0.)
-			calc_network_diff(work);
+		calc_network_diff(work);
 
 		pthread_mutex_unlock(&sctx->work_lock);
 
@@ -1288,11 +1335,19 @@ static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work)
 
 		if (stratum_diff != sctx->job.diff) {
 			char sdiff[32] = { 0 };
+			char pctbuf[48] = { 0 };
 			// store for api stats
 			stratum_diff = sctx->job.diff;
+			if (opt_diff_factor < 1.0) {
+				applog(LOG_WARNING,
+					"pool difficulty changed; resetting diff factor from %.4f to 1",
+					opt_diff_factor);
+				opt_diff_factor = 1.0;
+			}
 			if (opt_showdiff && work->targetdiff != stratum_diff)
-				snprintf(sdiff, 32, " (%.5f)", work->targetdiff);
-			applog(LOG_WARNING, "Stratum difficulty set to %g%s", stratum_diff, sdiff);
+				snprintf(sdiff, 32, " (effective %.8g)", work->targetdiff);
+			format_pct_to_target(pctbuf, sizeof(pctbuf), work, " | ");
+			applog(LOG_WARNING, "Stratum difficulty set to %g%s%s", stratum_diff, sdiff, pctbuf);
 		}
 }
 
@@ -1754,6 +1809,14 @@ static void *watchdog_thread(void *userdata)
 			applog(LOG_WARNING, "mining stall detected, resetting pool connection");
 			stratum_need_reset = true;
 			g_last_hash_tick = time(NULL);
+		}
+		if (have_stratum && g_pool_connected && g_last_hash_tick &&
+		    stats_total_hps() > 0.0 && g_last_share_tick &&
+		    (time(NULL) - g_last_share_tick) > 300) {
+			applog(LOG_WARNING,
+				"share stall detected while hashing, resetting pool connection");
+			stratum_need_reset = true;
+			g_last_share_tick = time(NULL);
 		}
 		stats_maybe_print_panel(false);
 	}

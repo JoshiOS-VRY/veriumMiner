@@ -1563,6 +1563,14 @@ static bool stratum_set_difficulty(struct stratum_ctx *sctx, json_t *params)
 	sctx->next_diff = diff;
 	pthread_mutex_unlock(&sctx->work_lock);
 
+	/* Pool vardiff is authoritative; undo auto factor drops from legacy rejects. */
+	if (opt_diff_factor < 1.0) {
+		applog(LOG_NOTICE, "pool set_difficulty %.8g; resetting diff factor from %.4f to 1",
+			diff, opt_diff_factor);
+		opt_diff_factor = 1.0;
+	}
+	restart_threads();
+
 	return true;
 }
 
