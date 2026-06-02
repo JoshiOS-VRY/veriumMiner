@@ -8,8 +8,17 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+#endif
 
 #include "miner.h"
+
+/* 32-bit ARM uses __arm__; AArch64/macOS ARM do not — cpuid is x86-only. */
+#if defined(__i386__) || defined(__x86_64__) || defined(__amd64__) \
+    || defined(_M_IX86) || defined(_M_X64)
+#define VRM_HAVE_X86_CPUID 1
+#endif
 
 #define CPU_TEMP_UNKNOWN (-1.0f)
 
@@ -127,21 +136,21 @@ int cpu_fanpercent()
 	return 0;
 }
 
-#ifndef __arm__
-static inline void cpuid(int functionnumber, int output[4]) {
-#if defined (_MSC_VER) || defined (__INTEL_COMPILER)
-	// Microsoft or Intel compiler, intrin.h included
+#ifdef VRM_HAVE_X86_CPUID
+static inline void cpuid(int functionnumber, int output[4])
+{
+#if defined(_MSC_VER) || defined(__INTEL_COMPILER)
 	__cpuidex(output, functionnumber, 0);
 #elif defined(__GNUC__) || defined(__clang__)
-	// use inline assembly, Gnu/AT&T syntax
 	int a, b, c, d;
-	asm volatile("cpuid" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "a"(functionnumber), "c"(0));
+	__asm__ volatile("cpuid"
+		: "=a"(a), "=b"(b), "=c"(c), "=d"(d)
+		: "a"(functionnumber), "c"(0));
 	output[0] = a;
 	output[1] = b;
 	output[2] = c;
 	output[3] = d;
 #else
-	// unknown platform. try inline assembly with masm/intel syntax
 	__asm {
 		mov eax, functionnumber
 		xor ecx, ecx
@@ -154,15 +163,14 @@ static inline void cpuid(int functionnumber, int output[4]) {
 	}
 #endif
 }
-#else /* !__arm__ */
-#define cpuid(fn, out) out[0] = 0;
-#endif
+#endif /* VRM_HAVE_X86_CPUID */
 
 // For the i7-5775C will output : Intel(R) Core(TM) i7-5775C CPU @ 3.30GHz
 void cpu_getname(char *outbuf, size_t maxsz)
 {
 	memset(outbuf, 0, maxsz);
 #ifdef WIN32
+#ifdef VRM_HAVE_X86_CPUID
 	char brand[0xC0] = { 0 };
 	int output[4] = { 0 }, ext;
 	cpuid(0x80000000, output);
@@ -175,9 +183,16 @@ void cpu_getname(char *outbuf, size_t maxsz)
 		}
 		snprintf(outbuf, maxsz, "%s", brand);
 	} else {
-		// Fallback, for the i7-5775C will output
-		// Intel64 Family 6 Model 71 Stepping 1, GenuineIntel
 		snprintf(outbuf, maxsz, "%s", getenv("PROCESSOR_IDENTIFIER"));
+	}
+#else
+	snprintf(outbuf, maxsz, "%s", getenv("PROCESSOR_IDENTIFIER"));
+#endif
+#elif defined(__APPLE__)
+	{
+		size_t len = maxsz;
+		if (sysctlbyname("machdep.cpu.brand_string", outbuf, &len, NULL, 0) != 0)
+			snprintf(outbuf, maxsz, "%s", "Apple CPU");
 	}
 #else
 	// Intel(R) Xeon(R) CPU E3-1245 V2 @ 3.40GHz
@@ -210,7 +225,7 @@ void cpu_getmodelid(char *outbuf, size_t maxsz)
 		getenv("PROCESSOR_REVISION"), getenv("NUMBER_OF_PROCESSORS"));
 #else
 	FILE *fd = fopen("/proc/cpuinfo", "rb");
-	char *buf = NULL, *p, *eol;
+	char *buf = NULL, *p;
 	int cpufam = 0, model = 0, stepping = 0;
 	size_t size = 0;
 	if (!fd) return;
@@ -262,7 +277,7 @@ void cpu_getmodelid(char *outbuf, size_t maxsz)
 
 bool has_aes_ni()
 {
-#ifdef __arm__
+#ifndef VRM_HAVE_X86_CPUID
 	return false;
 #else
 	int cpu_info[4] = { 0 };
@@ -273,8 +288,12 @@ bool has_aes_ni()
 
 void cpu_bestfeature(char *outbuf, size_t maxsz)
 {
-#ifdef __arm__
-	sprintf(outbuf, "ARM");
+#ifndef VRM_HAVE_X86_CPUID
+#if defined(__aarch64__) || defined(__arm__)
+	snprintf(outbuf, maxsz, "ARM");
+#else
+	*outbuf = '\0';
+#endif
 #else
 	int cpu_info[4] = { 0 };
 	int cpu_info_adv[4] = { 0 };

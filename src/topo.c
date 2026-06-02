@@ -31,6 +31,7 @@
 
 static struct topo_info g_topo;
 
+#if defined(__linux__)
 static int parse_u64_suffix(const char *s, uint64_t *out)
 {
 	char *end = NULL;
@@ -52,6 +53,8 @@ static int parse_u64_suffix(const char *s, uint64_t *out)
 	*out = (uint64_t)v;
 	return 1;
 }
+
+#endif /* __linux__ */
 
 #if defined(__linux__)
 static void topo_linux_probe(void)
