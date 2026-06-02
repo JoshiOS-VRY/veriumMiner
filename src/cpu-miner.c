@@ -364,50 +364,59 @@ static inline void work_copy(struct work *dest, const struct work *src)
 	}
 }
 
-/* compute nbits to get the network diff */
+/* Build network target from compact nBits (same semantics as verium-pool targetFromCompactHex). */
+static void target_from_compact(uint32_t compact, uint32_t *target)
+{
+	unsigned exp = (compact >> 24) & 0xff;
+	uint32_t mant = compact & 0x007fffff;
+	int byteoff, word, rem;
+	uint64_t val;
+
+	memset(target, 0, 8 * sizeof(uint32_t));
+	if (exp <= 3) {
+		mant >>= 8 * (3 - exp);
+		target[6] = mant;
+		return;
+	}
+	byteoff = exp - 3;
+	word = byteoff / 4;
+	rem = byteoff % 4;
+	val = (uint64_t)mant << (rem * 8);
+	if (6 - word >= 0 && 6 - word < 8) {
+		target[6 - word] = (uint32_t)val;
+		if (6 - word > 0 && (val >> 32))
+			target[6 - word - 1] = (uint32_t)(val >> 32);
+	}
+}
+
+/* Network block difficulty in the same units as work->sharediff (pdiff / DIFF1 scale). */
 static void calc_network_diff(struct work *work)
 {
-	// sample for diff 43.281 : 1c05ea29
-	// todo: endian reversed on longpoll could be zr5 specific...
 	uint32_t nbits = have_longpoll ? work->data[18] : swab32(work->data[18]);
-	uint32_t bits = (nbits & 0xffffff);
-	int16_t shift = (swab32(nbits) & 0xff); // 0x1c = 28
+	uint32_t target[8];
 
-	double d = (double)0x0000ffff / (double)bits;
-	for (int m=shift; m < 29; m++) d *= 256.0;
-	for (int m=29; m < shift; m++) d /= 256.0;
+	target_from_compact(nbits, target);
+	net_diff = target_to_diff(target);
 	if (opt_debug_diff)
-		applog(LOG_DEBUG, "net diff: %f -> shift %u, bits %08x", d, shift, bits);
-	net_diff = d;
+		applog(LOG_DEBUG, "network diff %g (nbits %08x)", net_diff, nbits);
 }
 
-/* Pool/effective difficulty of the share (same units as net_diff). */
-static double effective_pool_diff(const struct work *work)
-{
-	if (work && work->sharediff > 0.)
-		return work->sharediff;
-	if (work && work->targetdiff > 0.)
-		return work->targetdiff;
-	if (stratum_diff > 0.) {
-		if (opt_algo == ALGO_SCRYPT)
-			return stratum_diff / (65536.0 * opt_diff_factor);
-		return stratum_diff / opt_diff_factor;
-	}
-	return 0.;
-}
-
+/*
+ * pct to target = 100 * (actual share difficulty / network difficulty).
+ * >= 100% means the hash meets the chain target (block candidate).
+ */
 static void format_pct_to_target(char *buf, size_t bufsz, const struct work *work, const char *prefix)
 {
-	double pct;
+	double pct, submit;
 
 	buf[0] = '\0';
-	if (net_diff <= 0.)
+	if (net_diff <= 0. || !work || work->sharediff <= 0.)
 		return;
-	const double submit = effective_pool_diff(work);
-	if (submit <= 0.)
-		return;
+	submit = work->sharediff;
 	pct = 100.0 * submit / net_diff;
-	if (pct >= 0.01)
+	if (pct >= 100.0)
+		snprintf(buf, bufsz, "%spct to target %.2f%% BLOCK", prefix, pct);
+	else if (pct >= 0.01)
 		snprintf(buf, bufsz, "%spct to target %.2f%%", prefix, pct);
 	else
 		snprintf(buf, bufsz, "%spct to target %.4f%%", prefix, pct);
@@ -853,6 +862,12 @@ static int share_result(int result, struct work *work, const char *reason)
 
 	if (reason) {
 		applog(LOG_WARNING, "reject reason: %s", reason);
+		if (strstr(reason, "temporarily banned")) {
+			applog(LOG_ERR,
+				"pool IP ban (too many rejects); disconnecting — wait ~10 min or restart pool stratum if misconfigured");
+			stratum_need_reset = true;
+			return 0;
+		}
 		if (strncmp(reason, "low difficulty share", 20) == 0) {
 			/* Stratum pool already sets difficulty; shrinking factor only
 			 * raises the local target (diff/factor) and causes reject storms. */
@@ -1344,9 +1359,11 @@ static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work)
 					opt_diff_factor);
 				opt_diff_factor = 1.0;
 			}
-			if (opt_showdiff && work->targetdiff != stratum_diff)
+			if (opt_showdiff)
 				snprintf(sdiff, 32, " (effective %.8g)", work->targetdiff);
-			format_pct_to_target(pctbuf, sizeof(pctbuf), work, " | ");
+			if (net_diff > 0. && work->targetdiff > 0.)
+				snprintf(pctbuf, sizeof(pctbuf), " | pool %.4f%% of network",
+					100.0 * work->targetdiff / net_diff);
 			applog(LOG_WARNING, "Stratum difficulty set to %g%s%s", stratum_diff, sdiff, pctbuf);
 		}
 }
@@ -1904,7 +1921,7 @@ static void *stratum_thread(void *userdata)
 				if (!opt_quiet && last_bloc_height != stratum.bloc_height) {
 					last_bloc_height = stratum.bloc_height;
 					if (net_diff > 0.)
-						applog(LOG_BLUE, "%s block %d, diff %.3f", algo_names[opt_algo],
+						applog(LOG_BLUE, "%s block %d, network diff %.6g", algo_names[opt_algo],
 							stratum.bloc_height, net_diff);
 					else
 						applog(LOG_BLUE, "%s %s block %d", short_url, algo_names[opt_algo],

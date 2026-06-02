@@ -12,9 +12,6 @@ double hash_target_ratio(uint32_t* hash, uint32_t* target)
 	uint256 h, t;
 	double dhash;
 
-	if (!opt_showdiff)
-		return 0.0;
-
 	memcpy(&t, (void*) target, 32);
 	memcpy(&h, (void*) hash, 32);
 
@@ -25,16 +22,20 @@ double hash_target_ratio(uint32_t* hash, uint32_t* target)
 		return dhash;
 }
 
-// store the share ratio in work struct
+// store actual share difficulty (for pct-to-network and block detection)
 void work_set_target_ratio(struct work* work, uint32_t* hash)
 {
-	// only if the option is enabled (to reduce cpu usage)
-	if (opt_showdiff && work) {
-		work->shareratio = hash_target_ratio(hash, work->target);
-		work->sharediff = work->targetdiff * work->shareratio;
-		if (opt_debug)
-			applog(LOG_DEBUG, "share diff %.5f (%.1fx)", work->sharediff, work->shareratio);
-	}
+	double ratio;
+
+	if (!work)
+		return;
+	ratio = hash_target_ratio(hash, work->target);
+	if (ratio <= 0.)
+		return;
+	work->shareratio = ratio;
+	work->sharediff = work->targetdiff * work->shareratio;
+	if (opt_showdiff && opt_debug)
+		applog(LOG_DEBUG, "share diff %.8g (%.1fx pool target)", work->sharediff, work->shareratio);
 }
 
 #ifdef __cplusplus
