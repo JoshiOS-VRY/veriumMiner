@@ -798,28 +798,31 @@ extern int scanhash_scrypt(int thr_id, struct work *work, uint32_t max_nonce, ui
 	const uint32_t Htarg = ptarget[7];
 	int throughput = scrypt_best_throughput();
 	int i, j;
-	
+
 #ifdef HAVE_SHA256_4WAY
 	if (sha256_use_4way())
 		throughput *= 4;
 #endif
-	
-	/* Stratum pool: consensus header bytes + be32dec per word (matches veriumd scrypt²). */
-	if (have_stratum) {
-		for (i = 0; i < throughput; i++)
-			for (j = 0; j < 20; j++)
-				data[i * 20 + j] = be32dec((const unsigned char *) &pdata[j]);
-	} else {
-		for (i = 0; i < throughput; i++)
-			memcpy(data + i * 20, pdata, 80);
-	}
-	
+
+	for (i = 0; i < throughput; i++)
+		for (j = 0; j < 19; j++)
+			data[i * 20 + j] = have_stratum
+				? be32dec((const unsigned char *)&pdata[j])
+				: pdata[j];
+
 	sha256_init(midstate);
 	sha256_transform(midstate, data, 0);
-	
+
 	do {
-		for (i = 0; i < throughput; i++)
-			data[i * 20 + 19] = ++n;
+		for (i = 0; i < throughput; i++) {
+			uint32_t nonce = ++n;
+			unsigned char nonce_le[4];
+
+			le32enc(nonce_le, nonce);
+			data[i * 20 + 19] = have_stratum
+				? be32dec(nonce_le)
+				: nonce;
+		}
 		
 #if defined(HAVE_SHA256_4WAY)
 		if (throughput == 4)
@@ -847,12 +850,12 @@ extern int scanhash_scrypt(int thr_id, struct work *work, uint32_t max_nonce, ui
 			if (unlikely(hash[i * 8 + 7] <= Htarg && fulltest(hash + i * 8, ptarget))) {
 				work_set_target_ratio(work, hash + i * 8);
 				*hashes_done = n - pdata[19] + 1;
-				pdata[19] = data[i * 20 + 19];
+				pdata[19] = have_stratum ? n - (throughput - 1 - i) : data[i * 20 + 19];
 				return 1;
 			}
 		}
 	} while (likely(n < max_nonce && !work_restart[thr_id].restart));
-	
+
 	*hashes_done = n - pdata[19] + 1;
 	pdata[19] = n;
 	return 0;
