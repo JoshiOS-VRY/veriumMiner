@@ -127,11 +127,10 @@ error_reporting(0);
 
 $summary = request('summary');
 $threads = request('threads');
-$histo   = request('histo');
 
 ob_end_clean(); /* swap to debug */
 //echo ob_get_clean()."\n";
 
 header("Content-Type: application/json");
-echo json_encode(compact('summary', 'threads', 'histo'))."\n";
+echo json_encode(compact('summary', 'threads'))."\n";
 ?>

@@ -1,0 +1,15 @@
+# Matches the existing veriumMiner style: tab indentation, Linux-style braces.
+BasedOnStyle: LLVM
+Language: Cpp
+UseTab: ForIndentation
+TabWidth: 4
+IndentWidth: 4
+ContinuationIndentWidth: 4
+BreakBeforeBraces: Linux
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+PointerAlignment: Right
+SortIncludes: false
+ColumnLimit: 0
+SpaceAfterCStyleCast: false

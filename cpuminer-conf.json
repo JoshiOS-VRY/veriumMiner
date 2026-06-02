@@ -1,21 +1,17 @@
 {
-	"_comment1" : "Any long-format command line argument ",
-	"_comment2" : "may be used in this JSON configuration file",
+	"_comment": "Verium miner example configuration",
 
-	"api-bind" : "127.0.0.1:4048",
+	"url": "stratum+tcp://pool.example.com:7000",
+	"backup-url": "stratum+tcp://backup.example.com:7000",
+	"user": "YOUR_WALLET_ADDRESS.worker1",
+	"pass": "x",
 
-	"url" : "stratum+tcp://yiimp.ccminer.org:4252",
-	"user" : "benchmark",
-	"pass" : "d=0.024",
+	"threads": 0,
+	"profile": "background",
+	"status-interval": 30,
+	"api-bind": "127.0.0.1:4048",
 
-	"algo" : "decred",
-	"threads" : 0,
-	"cpu-priority" : 0,
-	"cpu-affinity" : -1,
-
-	"benchmark" : false,
-	"debug" : false,
-	"protocol": false,
-	"show-diff": true,
-	"quiet" : false
+	"quiet": false,
+	"show-diff": false,
+	"debug": false
 }

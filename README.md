@@ -1,105 +1,211 @@
 veriumMiner
-==============
+===========
 
-This is a multi-threaded CPU miner for Verium using scrypt²,
-fork of [tpruvot](//github.com/tpruvot)'s cpuminer-multi (see AUTHORS for list of contributors).
+A multi-threaded CPU miner for **Verium** using the scrypt² ("VeriHash")
+proof-of-work algorithm. Fork of [tpruvot](https://github.com/tpruvot)'s
+cpuminer-multi (see `AUTHORS` for contributors).
+
+This tree has been modernized for 2026: a single **CMake** build replaces the
+old autotools/Visual Studio setup, the dead CryptoNight/Monero code has been
+removed, the OpenSSL dependency is gone, and CI builds and hash-tests every
+supported platform (x86-64, ARM64, Apple Silicon, Intel Mac, Windows, FreeBSD).
 
 #### Table of contents
 
 * [Dependencies](#dependencies)
-* [Download](#download)
 * [Build](#build)
-* [Usage instructions](#usage-instructions)
-* [Donations](#donations)
-* [Credits](#credits)
+* [Build options](#build-options)
+* [Usage](#usage)
+* [Hash regression tests](#hash-regression-tests)
 * [License](#license)
 
 
 Dependencies
 ============
- * libcurl http://curl.haxx.se/libcurl/
- * jansson http://www.digip.org/jansson/ (jansson source is included in-tree)
- * openssl libcrypto https://www.openssl.org/
- * pthreads
- * zlib (for curl/ssl)
+* A C11/C++11 compiler (GCC, Clang, AppleClang, or MinGW-w64)
+* [CMake](https://cmake.org/) ≥ 3.16
+* [libcurl](https://curl.se/libcurl/)
+* [jansson](https://github.com/akheron/jansson) (auto-downloaded if not found)
+* pthreads (provided by the toolchain on every supported platform)
 
-Download
-========
- * Git tree:   https://github.com/effectsToCause/veriumMiner
- * Clone with `git clone https://github.com/effectsToCause/veriumMiner`
+OpenSSL is **not** required.
+
 
 Build
 =====
 
-#### Basic *nix build instructions:
- * just use ./build.sh
-_OR_
- * ./autogen.sh	# only needed if building from git repo
- * ./nomacro.pl	# only needed if building on Mac OS X or with Clang
- * ./configure CFLAGS="*-march=native*" --with-crypto --with-curl
-   * # Use -march=native if building for a single machine
- * make
+The build is the same on every platform:
 
-#### Note for Debian/Ubuntu users:
- * apt-get install automake autoconf pkg-config libcurl4-openssl-dev libjansson-dev libssl-dev libgmp-dev zlib1g-dev
+```sh
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+```
 
-#### Notes for AIX users:
- * To build a 64-bit binary, export OBJECT_MODE=64
- * GNU-style long options are not supported, but are accessible via configuration file
+The miner binary is `build/cpuminer` (`build/cpuminer.exe` on Windows).
 
-#### Basic Windows build with Visual Studio 2013
- * All the required .lib files are now included in tree (windows only)
- * AVX enabled by default for x64 platform (AVX2 and XOP could also be used)
+### Linux (Debian/Ubuntu)
 
-#### Basic Windows build instructions, using MinGW64:
- * Install MinGW64 and the MSYS Developer Tool Kit (http://www.mingw.org/)
-   * Make sure you have mstcpip.h in MinGW\include
- * install pthreads-w64
- * Install libcurl devel (http://curl.haxx.se/download.html)
-   * Make sure you have libcurl.m4 in MinGW\share\aclocal
-   * Make sure you have curl-config in MinGW\bin
- * Install openssl devel (https://www.openssl.org/related/binaries.html)
- * In the MSYS shell, run:
-   * for 64bit, you can use ./mingw64.sh else :
-     ./autogen.sh	# only needed if building from git repo
-   * LIBCURL="-lcurldll" ./configure CFLAGS="*-march=native*"
-     * # Use -march=native if building for a single machine
-   * make
+```sh
+sudo apt-get install -y cmake build-essential libcurl4-openssl-dev libjansson-dev
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+```
 
-#### Architecture-specific notes:
- * ARM:
-   * No runtime CPU detection. The miner can take advantage of some instructions specific to ARMv5E and later processors, but the decision whether to use them is made at compile time, based on compiler-defined macros.
-   * To use NEON instructions, add "-mfpu=neon" to CFLAGS.
- * x86:
-   * The miner checks for SSE2 instructions support at runtime, and uses them if they are available.
- * x86-64:	
-   * The miner can take advantage of AVX, AVX2 and XOP instructions, but only if both the CPU and the operating system support them.
-     * Linux supports AVX starting from kernel version 2.6.30.
-     * FreeBSD supports AVX starting with 9.1-RELEASE.
-     * Mac OS X added AVX support in the 10.6.8 update.
-     * Windows supports AVX starting from Windows 7 SP1 and Windows Server 2008 R2 SP1.
-   * The configure script outputs a warning if the assembler doesn't support some instruction sets. In that case, the miner can still be built, but unavailable optimizations are left off.
+The same commands work on ARMv7/ARMv8 and ARM64 (aarch64) Linux.
 
-Usage instructions
-==================
-Run "cpuminer --help" to see options.
+### macOS (Apple Silicon and Intel)
+
+```sh
+brew install cmake jansson curl
+cmake -B build -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_PREFIX_PATH="$(brew --prefix jansson);$(brew --prefix curl)"
+cmake --build build -j
+```
+
+This builds natively on both Apple Silicon (arm64) and Intel (x86_64). macOS
+uses the portable C scrypt cores on all Macs (assembly is disabled on Apple
+platforms). Runtime SIMD selection (SSE2/AVX/AVX2) applies on Linux and
+Windows x86-64 builds only.
+
+### Windows (MSYS2 / MinGW-w64)
+
+Install [MSYS2](https://www.msys2.org/), then in the **MINGW64** shell:
+
+```sh
+pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake \
+                   mingw-w64-x86_64-ninja mingw-w64-x86_64-curl \
+                   mingw-w64-x86_64-jansson
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+```
+
+From PowerShell (without opening the MSYS2 shell):
+
+```powershell
+C:\msys64\usr\bin\bash.exe -lc "export PATH=/mingw64/bin:`$PATH && cd /path/to/veriumMiner && cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"
+```
+
+Run the miner with MinGW DLLs on `PATH`:
+
+```powershell
+$env:PATH = "C:\msys64\mingw64\bin;" + $env:PATH
+.\build\cpuminer.exe -o stratum+tcp://POOL:PORT -u WALLET.WORKER -p x
+```
+
+### FreeBSD
+
+```sh
+pkg install -y cmake curl jansson
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(sysctl -n hw.ncpu)
+```
+
+
+Build options
+=============
+
+Pass these with `-D<option>=ON|OFF` at configure time:
+
+| Option         | Default | Description                                              |
+|----------------|---------|----------------------------------------------------------|
+| `USE_ASM`      | `ON`    | Use hand-written assembly cores (x86/x86-64/ARM32)       |
+| `MARCH_NATIVE` | `OFF`   | Build with `-march=native` for a single specific machine |
+| `ENABLE_LTO`   | `ON`    | Link-time optimization for Release builds                |
+| `BUILD_TESTS`  | `ON`    | Build the hash regression tests                          |
+
+Example, tuned for the local machine:
+
+```sh
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DMARCH_NATIVE=ON
+cmake --build build -j
+```
+
+### CPU feature selection
+
+The miner detects CPU capabilities at runtime, so one binary runs everywhere:
+
+* SSE2 → 1-way scrypt
+* AVX  → 3-way scrypt
+* AVX2 → 6-way scrypt
+
+No manual flags are needed to choose between them.
+
+
+Usage
+=====
+
+```sh
+./build/cpuminer -o stratum+tcp://POOL:PORT -u WALLET.WORKER -p x -t <threads>
+```
+
+Run `./build/cpuminer --help` for the full list of options. Common ones:
+
+* `-o, --url` — primary pool URL (`stratum+tcp://...`)
+* `--backup-url` — comma-separated backup pools (automatic failover)
+* `-u, --user` / `-p, --pass` — wallet/worker credentials
+* `-t, --threads` — mining threads (`0` = auto from CPU topology and L3 cache)
+* `--setup` — interactive wizard writes the default config file (see below)
+* `--tune` — print recommended thread count at startup
+* `--status-interval` — seconds between status summaries (hashrate, shares, temp)
+* `--profile dedicated` — higher CPU priority for dedicated mining rigs
+* `-c, --config` — JSON config file (see `cpuminer-conf.json`)
+
+Hashrate is reported in **hashes per minute (H/m)** in logs and the status
+panel. The monitoring API also exposes raw **hashes per second (H/s)** as
+`hashrate_hps` for integrations.
+
+### Config file location
+
+| Platform | Default path |
+|----------|--------------|
+| Linux / macOS / FreeBSD | `~/.cpuminer/cpuminer-conf.json` |
+| Windows | `%APPDATA%\cpuminer\cpuminer-conf.json` |
+
+If no file exists at that path, the miner looks for `cpuminer-conf.json` next
+to the executable. Use `--setup` or `-c` to point at a custom file.
+
+### Monitoring API (port 4048)
+
+The built-in API exposes:
+
+* `summary` — classic key/value stats (includes 1m and 15m average hashrate)
+* `json` — JSON snapshot for dashboards
+* `health` — quick health probe
+* `metrics` — Prometheus-style text metrics
+
+Example: `echo summary | nc 127.0.0.1 4048`
 
 ### Connecting through a proxy
 
-Use the --proxy option.
+Use `--proxy`. To use a SOCKS proxy add a `socks4://` or `socks5://` prefix to
+the host. With no prefix an HTTP proxy is assumed; when `--proxy` is not used,
+the `http_proxy` / `all_proxy` environment variables are honored.
 
-To use a SOCKS proxy, add a socks4:// or socks5:// prefix to the proxy host  
-Protocols socks4a and socks5h, allowing remote name resolving, are also available since libcurl 7.18.0.
 
-If no protocol is specified, the proxy is assumed to be a HTTP proxy.  
-When the --proxy option is not used, the program honors the http_proxy and all_proxy environment variables.
+Hash regression tests
+======================
 
-Credits
-=======
-CPUMiner-multi was forked from pooler's CPUMiner, and has been started by Lucas Jones.
-* [tpruvot](https://github.com/tpruvot) added all the recent features and newer algorythmns
-* [Wolf9466](https://github.com/wolf9466) helped with Intel AES-NI support for CryptoNight
+scrypt² output is consensus-bound and must never change. The test harness
+links the real hashing core and verifies determinism, non-null output, and a
+locked golden digest:
+
+```sh
+ctest --test-dir build --output-on-failure
+```
+
+The empty-buffer test allocates about 3 GiB of scratch memory (N=1048576).
+Ensure the machine has enough free RAM before running it.
+
+You can also print the canonical empty-buffer digest directly:
+
+```sh
+./build/cpuminer --cputest
+```
+
+To lock the golden vector for your build, run `test_hash` once, copy the value
+from its `RECORD:` line into [`tests/golden.h`](tests/golden.h), and rebuild.
+
 
 License
 =======
-GPLv2.  See COPYING for details.
+GPLv2. See `COPYING` for details.

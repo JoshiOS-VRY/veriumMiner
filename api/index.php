@@ -39,7 +39,10 @@ function translateField($key)
 	$intl['ALGO'] = 'Algorithm';
 	$intl['GPUS'] = 'GPUs';
 	$intl['CPUS'] = 'Threads';
-	$intl['KHS'] = 'Hash rate (kH/s)';
+	$intl['HPM'] = 'Hash rate (H/m)';
+	$intl['HPM_AVG60'] = 'Hash rate avg 1m (H/m)';
+	$intl['HPM_AVG900'] = 'Hash rate avg 15m (H/m)';
+	$intl['KHS'] = 'Hash rate (H/m)'; /* legacy key alias */
 	$intl['ACC'] = 'Accepted shares';
 	$intl['ACCMN'] = 'Accepted / mn';
 	$intl['REJ'] = 'Rejected';
@@ -74,6 +77,16 @@ function translateValue($key,$val,$data=array())
 		case 'NAME':
 			$val = $data['NAME'].'&nbsp;'.$data['VER'];
 			break;
+		case 'HPM':
+		case 'HPM_AVG60':
+		case 'HPM_AVG900':
+		case 'KHS':
+			$hpm = floatval($val);
+			if ($hpm >= 10000.0)
+				$val = sprintf('%.1fk H/m', $hpm / 1000.0);
+			else
+				$val = number_format($hpm, 2, '.', ',') . ' H/m';
+			break;
 		case 'FREQ':
 			$val = sprintf("%d MHz", round(floatval($val)/1000.0));
 			break;
@@ -98,8 +111,10 @@ function displayData($data)
 					$htm .= '<tr><td class="key">'.translateField($key).'</td>'.
 						'<td class="val">'.translateValue($key, $val, $summary)."</td></tr>\n";
 			}
-			if (isset($summary['KHS']))
-				@ $totals[$summary['ALGO']] += floatval($summary['KHS']);
+			if (isset($summary['HPM']))
+				@ $totals[$summary['ALGO']] += floatval($summary['HPM']);
+			elseif (isset($summary['KHS']))
+				@ $totals[$summary['ALGO']] += floatval($summary['KHS']) * 60.0;
 			foreach ($stats['threads'] as $g=>$gpu) {
 				$card = isset($gpu['CARD']) ? $gpu['CARD'] : '';
 				$htm .= '<tr><th class="gpu" colspan="2">'.$g." $card</th></tr>\n";
@@ -116,7 +131,11 @@ function displayData($data)
 	if (!empty($totals)) {
 		$htm .= '<div class="totals"><h2>Total Hash rate</h2>'."\n";
 		foreach ($totals as $algo => $hashrate) {
-			$htm .= '<li><span class="algo">'.$algo.":</span>$hashrate kH/s</li>\n";
+			if ($hashrate >= 10000.0)
+				$label = sprintf('%.1fk H/m', $hashrate / 1000.0);
+			else
+				$label = number_format($hashrate, 2, '.', ',') . ' H/m';
+			$htm .= '<li><span class="algo">'.$algo.":</span>$label</li>\n";
 		}
 		$htm .= '</div>';
 	}

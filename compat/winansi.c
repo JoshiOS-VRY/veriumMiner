@@ -52,6 +52,9 @@ static void init(void)
 	if (!console)
 		return;
 
+	SetConsoleOutputCP(CP_UTF8);
+	SetConsoleCP(CP_UTF8);
+
 	GetConsoleScreenBufferInfo(console, &sbi);
 	attr = plain_attr = sbi.wAttributes;
 	negative = 0;

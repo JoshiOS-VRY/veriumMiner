@@ -1,26 +1,29 @@
+# veriumMiner - multi-stage CMake build
 #
-# Dockerfile for cpuminer
-# usage: docker run creack/cpuminer --url xxxx --user xxxx --pass xxxx
-# ex: docker run creack/cpuminer --url stratum+tcp://ltc.pool.com:80 --user creack.worker1 --pass abcdef
+# Build:  docker build -t veriumminer .
+# Run:    docker run --rm veriumminer -o stratum+tcp://pool:port -u WALLET.WORKER -p x
 #
-#
+FROM debian:bookworm-slim AS build
 
-FROM		ubuntu:latest
-MAINTAINER	Guillaume J. Charmes <guillaume@charmes.net>
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential cmake git \
+        libcurl4-openssl-dev libjansson-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN		apt-get update -qq
+WORKDIR /src
+COPY . .
 
-RUN		apt-get install -qqy build-essential
-RUN		apt-get install -qqy automake
-RUN		apt-get install -qqy libcurl4-openssl-dev
-RUN		apt-get install -qqy git
-RUN		apt-get install -qqy make
+RUN cmake -B build -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build build -j "$(nproc)" \
+    && ctest --test-dir build --output-on-failure
 
-RUN		git clone https://github.com/pooler/cpuminer
+# ---- runtime image ----
+FROM debian:bookworm-slim
 
-RUN		cd cpuminer && ./autogen.sh
-RUN		cd cpuminer && ./configure CFLAGS="-O3"
-RUN		cd cpuminer && make
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libcurl4 libjansson4 \
+    && rm -rf /var/lib/apt/lists/*
 
-WORKDIR		/cpuminer
-ENTRYPOINT	["./minerd"]
+COPY --from=build /src/build/cpuminer /usr/local/bin/cpuminer
+
+ENTRYPOINT ["cpuminer"]
