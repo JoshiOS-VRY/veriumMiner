@@ -20,7 +20,8 @@ jobs:
           - { name: "Linux x86_64 (Clang)",   os: ubuntu-latest,    cc: clang, cxx: clang++ }
           - { name: "Linux ARM64 (GCC)",      os: ubuntu-24.04-arm, cc: gcc,   cxx: g++ }
           - { name: "macOS Apple Silicon",    os: macos-14,         cc: clang, cxx: clang++ }
-          - { name: "macOS Intel",            os: macos-13,         cc: clang, cxx: clang++ }
+          # macos-13 was retired Dec 2025; macos-15-intel is the last hosted x86_64 Mac image.
+          - { name: "macOS Intel",            os: macos-15-intel,   cc: clang, cxx: clang++ }
     env:
       CC: ${{ matrix.cc }}
       CXX: ${{ matrix.cxx }}
