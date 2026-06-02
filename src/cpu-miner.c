@@ -1343,23 +1343,16 @@ static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work,
 		}
 
 		/* Assemble consensus block header (veriumd / pool serializeHeader layout).
-		 * PoW must match wallet solo mining — not the legacy cpuminer stratum layout. */
+		 * job.version/nbits/ntime/prevhash are already raw bytes from stratum notify. */
 		memset(work->data, 0, 80);
 		{
 			unsigned char *hdr = (unsigned char *) work->data;
-			unsigned char tmp[4];
 
-			hex2bin(tmp, sctx->job.version, 4);
-			*(uint32_t *)(hdr + 0) = be32dec(tmp);
-
-			hex2bin(hdr + 4, sctx->job.prevhash, 32);
-
+			*(uint32_t *)(hdr + 0) = be32dec(sctx->job.version);
+			memcpy(hdr + 4, sctx->job.prevhash, 32);
 			memcpy(hdr + 36, merkle_root, 32);
-
 			*(uint32_t *)(hdr + 68) = le32dec(sctx->job.ntime);
-
-			hex2bin(tmp, sctx->job.nbits, 4);
-			*(uint32_t *)(hdr + 72) = be32dec(tmp);
+			*(uint32_t *)(hdr + 72) = be32dec(sctx->job.nbits);
 		}
 
 		calc_network_diff(work);
