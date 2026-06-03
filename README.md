@@ -105,6 +105,15 @@ path below):
 ./build/cpuminer -o stratum+tcp://POOL:PORT -u WALLET.WORKER -p x -t 0
 ```
 
+**Vericonomy official pool** ([mine.vericonomy.com](https://mine.vericonomy.com)):
+
+```sh
+./build/cpuminer -o stratum+tcp://mine.vericonomy.com:3333 -u VYourAddress.worker1 -p x -t 0
+```
+
+Use your Verium address (starts with `V`) and an optional worker label after the dot.
+Pool dashboard: `https://mine.vericonomy.com/miner/VYourAddress`.
+
 `-t 0` picks a thread count from CPU topology and cache size. Use `-t 4` (etc.)
 to set it manually. The miner exits with an error if no pool URL is given and no
 config file is found.
@@ -204,7 +213,7 @@ Run the miner with MinGW DLLs on `PATH`:
 
 ```powershell
 $env:PATH = "C:\msys64\mingw64\bin;" + $env:PATH
-.\build\cpuminer.exe -o stratum+tcp://POOL:PORT -u WALLET.WORKER -p x
+.\build\cpuminer.exe -o stratum+tcp://mine.vericonomy.com:3333 -u VYourAddress.worker1 -p x
 ```
 
 ### FreeBSD
@@ -260,6 +269,10 @@ Usage
 ```sh
 ./build/cpuminer -o stratum+tcp://POOL:PORT -u WALLET.WORKER -p x -t <threads>
 ```
+
+**Default pool (Vericonomy):** `stratum+tcp://mine.vericonomy.com:3333` — username
+`VRM_ADDRESS.workerName`, password `x` (any value). See [Quick start](#quick-start)
+for a copy-paste example.
 
 Run `./build/cpuminer --help` for the full list of options. Common ones:
 
