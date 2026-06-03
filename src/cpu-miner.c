@@ -22,6 +22,7 @@
 #include <sys/time.h>
 #include <time.h>
 #include <signal.h>
+#include <math.h>
 
 #include <curl/curl.h>
 #include <jansson.h>
@@ -413,29 +414,39 @@ static inline void work_copy(struct work *dest, const struct work *src)
 	}
 }
 
-/* Build network target from compact nBits (same semantics as verium-pool targetFromCompactHex). */
-static void target_from_compact(uint32_t compact, uint32_t *target)
+/*
+ * Network difficulty from compact nBits (matches verium-pool targetFromCompactHex +
+ * targetToDifficulty). Uses log2/exp2 so large exponents stay accurate.
+ * DIFF1 = 0x00000000ffff0000 << 192 (pdiff scale, same as work->sharediff).
+ */
+static double compact_to_diff(uint32_t compact)
 {
 	unsigned exp = (compact >> 24) & 0xff;
 	uint32_t mant = compact & 0x007fffff;
-	int byteoff, word, rem;
-	uint64_t val;
+	double log2_diff1, log2_diff;
 
-	memset(target, 0, 8 * sizeof(uint32_t));
+	if (mant == 0)
+		return 0.;
+
+	/* log2(0xffff0000 << 192) = log2(0xffff0000) + 192 */
+	log2_diff1 = log2(4294901760.0) + 192.0;
+
 	if (exp <= 3) {
 		mant >>= 8 * (3 - exp);
-		target[6] = mant;
-		return;
+		if (mant == 0)
+			return 0.;
+		log2_diff = log2_diff1 - log2((double)mant);
+	} else {
+		log2_diff = log2_diff1 - log2((double)mant) - 8.0 * ((double)exp - 3.0);
 	}
-	byteoff = exp - 3;
-	word = byteoff / 4;
-	rem = byteoff % 4;
-	val = (uint64_t)mant << (rem * 8);
-	if (6 - word >= 0 && 6 - word < 8) {
-		target[6 - word] = (uint32_t)val;
-		if (6 - word > 0 && (val >> 32))
-			target[6 - word - 1] = (uint32_t)(val >> 32);
-	}
+	return exp2(log2_diff);
+}
+
+static bool share_meets_network_target(double sharediff)
+{
+	if (net_diff <= 0. || sharediff <= 0.)
+		return false;
+	return sharediff >= net_diff;
 }
 
 /* Network block difficulty in the same units as work->sharediff (pdiff / DIFF1 scale). */
@@ -448,10 +459,7 @@ static void calc_network_diff(struct work *work)
 		nbits = work->data[18];
 	else
 		nbits = swab32(work->data[18]);
-	uint32_t target[8];
-
-	target_from_compact(nbits, target);
-	net_diff = target_to_diff(target);
+	net_diff = compact_to_diff(nbits);
 	if (opt_debug_diff)
 		applog(LOG_DEBUG, "network diff %g (nbits %08x)", net_diff, nbits);
 }
@@ -878,7 +886,7 @@ static int share_result(int result, struct work *work, const char *reason)
 
 	if (work) {
 		sharediff = work->sharediff;
-		block_share = net_diff > 0. && sharediff >= net_diff;
+		block_share = share_meets_network_target(sharediff);
 		block_height = work->height;
 	} else if (share_submit_meta_pop(&meta)) {
 		sharediff = meta.sharediff;
@@ -886,7 +894,7 @@ static int share_result(int result, struct work *work, const char *reason)
 		block_height = meta.height;
 	} else {
 		sharediff = stratum.sharediff;
-		block_share = net_diff > 0. && sharediff >= net_diff;
+		block_share = share_meets_network_target(sharediff);
 		block_height = stratum.bloc_height;
 	}
 
@@ -909,7 +917,17 @@ static int share_result(int result, struct work *work, const char *reason)
 	switch (opt_algo) {
 	default:
 		stats_format_hpm(hashrate, rate, sizeof(rate));
-		format_pct_to_target(pctbuf, sizeof(pctbuf), work, ", ");
+		if (work && work->sharediff > 0.)
+			format_pct_to_target(pctbuf, sizeof(pctbuf), work, ", ");
+		else if (sharediff > 0. && net_diff > 0.) {
+			double pct = 100.0 * sharediff / net_diff;
+			if (pct >= 100.0)
+				snprintf(pctbuf, sizeof(pctbuf), ", pct to target %.2f%% BLOCK", pct);
+			else if (pct >= 0.01)
+				snprintf(pctbuf, sizeof(pctbuf), ", pct to target %.2f%%", pct);
+			else
+				snprintf(pctbuf, sizeof(pctbuf), ", pct to target %.4f%%", pct);
+		}
 		logfmt_share(result != 0, block_share,
 			(unsigned long)accepted_count,
 			(unsigned long)(accepted_count + rejected_count),
@@ -1003,7 +1021,7 @@ static bool submit_upstream_work(CURL *curl, struct work *work)
 
 		/* Record metadata before send; stratum responses arrive async without work. */
 		{
-			bool block_share = net_diff > 0. && work->sharediff >= net_diff;
+			bool block_share = share_meets_network_target(work->sharediff);
 			uint32_t height = work->height ? work->height : (uint32_t)stratum.bloc_height;
 
 			share_submit_meta_push(block_share, work->sharediff, height);
@@ -1436,6 +1454,7 @@ static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work,
 		}
 
 		calc_network_diff(work);
+		work->height = (uint32_t)sctx->bloc_height;
 
 		pthread_mutex_unlock(&sctx->work_lock);
 
@@ -1744,6 +1763,11 @@ static void *miner_thread(void *userdata)
 
 		/* if nonce found, submit work */
 		if (rc && !opt_benchmark) {
+			if (share_meets_network_target(work.sharediff)) {
+				uint32_t height = work.height ? work.height :
+					(uint32_t)stratum.bloc_height;
+				logfmt_block_candidate(thr_id, height, work.sharediff, net_diff);
+			}
 			if (!submit_work(mythr, &work))
 				break;
 			// prevent stale work in solo

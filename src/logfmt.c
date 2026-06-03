@@ -138,6 +138,38 @@ void logfmt_status_panel(bool pool_ok, const char *pool_status,
 		threads, phys_cpus, uptime);
 }
 
+void logfmt_block_candidate(int thr_id, uint32_t height, double share_diff,
+	double network_diff)
+{
+	const char *h = height ? "" : " (height pending)";
+
+	if (use_colors) {
+		applog(LOG_NOTICE,
+			"%s━━━ BLOCK CANDIDATE ━━━%s  Thread %d found a network-target hash%s",
+			CL_LGR, CL_N, thr_id, h);
+		if (height)
+			applog(LOG_NOTICE,
+				"    Height %u · share diff %.6g · network diff %.6g · submitting to pool",
+				(unsigned)height, share_diff, network_diff);
+		else
+			applog(LOG_NOTICE,
+				"    Share diff %.6g · network diff %.6g · submitting to pool",
+				share_diff, network_diff);
+	} else {
+		applog(LOG_NOTICE,
+			"BLOCK CANDIDATE — thread %d found a network-target hash%s",
+			thr_id, h);
+		if (height)
+			applog(LOG_NOTICE,
+				"Height %u · share diff %.6g · network diff %.6g · submitting to pool",
+				(unsigned)height, share_diff, network_diff);
+		else
+			applog(LOG_NOTICE,
+				"Share diff %.6g · network diff %.6g · submitting to pool",
+				share_diff, network_diff);
+	}
+}
+
 void logfmt_block_found(uint32_t height, double share_diff, double network_diff)
 {
 	const char *h = height ? "" : " (height pending)";

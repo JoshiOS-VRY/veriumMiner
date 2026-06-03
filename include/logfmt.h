@@ -29,6 +29,10 @@ void logfmt_status_panel(bool pool_ok, const char *pool_status,
 void logfmt_new_block(const char *source, const char *algo, uint32_t height,
 	const char *detail);
 
+/* Local hash meets network target; share is being submitted to the pool. */
+void logfmt_block_candidate(int thr_id, uint32_t height, double share_diff,
+	double network_diff);
+
 /* Pool accepted a share that met the network (block) target. */
 void logfmt_block_found(uint32_t height, double share_diff, double network_diff);
 
