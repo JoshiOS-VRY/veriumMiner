@@ -41,9 +41,11 @@
 #endif
 #endif
 
+#include <sys/stat.h>
 #ifndef WIN32
 #include <sys/resource.h>
-#include <sys/stat.h>
+#endif
+#ifndef _MSC_VER
 #include <libgen.h>
 #endif
 
