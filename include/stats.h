@@ -21,8 +21,15 @@ double stats_ema_60s(void);
 double stats_ema_900s(void);
 double stats_accept_pct(void);
 
+/* Snapshot the accepted/rejected share counters owned by stats.c. */
+void stats_get_shares(uint32_t *accepted, uint32_t *rejected);
+
 /* Format hashes/sec as human-readable hashes/min (H/m). */
 void stats_format_hpm(double hps, char *buf, size_t bufsz);
+
+/* Record lightweight memory-health signals (latest stratum receive buffer
+ * capacity/usage and work I/O queue depth). Cheap; safe to call frequently. */
+void stats_record_mem(size_t sockbuf_cap, size_t sockbuf_used, int workio_qdepth);
 
 /* Periodic status panel (TUI-lite) when enabled. */
 void stats_maybe_print_panel(bool force);

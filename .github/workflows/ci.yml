@@ -52,6 +52,8 @@ jobs:
 
       - name: cputest (golden hash print)
         run: ./build/cpuminer --cputest
+      - name: Self-test (golden-vector gate)
+        run: ./build/cpuminer --selftest
 
   # ---------------------------------------------------------------------
   # Windows (MSYS2 / MinGW-w64)
@@ -83,6 +85,104 @@ jobs:
         run: ctest --test-dir build --output-on-failure
       - name: cputest
         run: ./build/cpuminer.exe --cputest
+      - name: Self-test (golden-vector gate)
+        run: ./build/cpuminer.exe --selftest
+      - name: Upload Windows build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpuminer-windows-mingw64
+          path: build/cpuminer.exe
+
+  # ---------------------------------------------------------------------
+  # Warnings-as-errors gate (known-clean GCC config)
+  # ---------------------------------------------------------------------
+  werror:
+    name: warnings-as-errors (gcc)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libcurl4-openssl-dev libjansson-dev
+      - name: Configure (-Werror)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DWERROR=ON
+      - name: Build
+        run: cmake --build build -j
+
+  # ---------------------------------------------------------------------
+  # Address/UndefinedBehavior sanitizers — exercises the mining loop and the
+  # cooperative shutdown path (SIGTERM) to catch leaks and UB.
+  # ---------------------------------------------------------------------
+  sanitizers:
+    name: asan-ubsan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libcurl4-openssl-dev libjansson-dev
+      - name: Configure (sanitizers, no LTO)
+        run: >-
+          cmake -B build -DCMAKE_BUILD_TYPE=Debug -DENABLE_LTO=OFF
+          -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g"
+          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g"
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+      - name: Build
+        run: cmake --build build -j
+      - name: Golden hash under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ./build/cpuminer --cputest
+      - name: Mining + graceful shutdown under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: |
+          ./build/cpuminer --benchmark -t 2 --api-bind 127.0.0.1:0 &
+          PID=$!
+          sleep 25
+          kill -TERM $PID
+          # Exit code 0 means the cooperative shutdown completed cleanly.
+          wait $PID
+
+  # ---------------------------------------------------------------------
+  # Static analysis (cppcheck) — fails on genuine errors.
+  # ---------------------------------------------------------------------
+  static-analysis:
+    name: cppcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install cppcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cppcheck
+      # Errors-only gate (real bugs: leaks, OOB, null deref). This fails the job.
+      - name: cppcheck (errors gate)
+        run: |
+          cppcheck --quiet --error-exitcode=1 \
+            --inline-suppr \
+            --suppress=missingIncludeSystem \
+            --library=posix \
+            -I include -I . \
+            src
+      # Broader analysis (style/perf/portability) is informational for now so
+      # legacy findings don't block PRs; review the output and tighten later.
+      - name: cppcheck (informational, full)
+        continue-on-error: true
+        run: |
+          cppcheck --quiet \
+            --enable=warning,performance,portability \
+            --inline-suppr \
+            --suppress=missingIncludeSystem \
+            --library=posix \
+            -I include -I . \
+            src
 
   # ---------------------------------------------------------------------
   # FreeBSD (via VM action)

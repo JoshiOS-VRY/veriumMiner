@@ -1,0 +1,49 @@
+// Windows PE resources (version info, icon, manifest).
+// Configured from CMake project version — do not edit cpuminer.rc in build/.
+
+#include "winres.h"
+
+#ifndef IDI_ICON1
+#define IDI_ICON1 101
+#endif
+
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+#pragma code_page(1252)
+
+IDI_ICON1               ICON                    "cpuminer.ico"
+
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "veriumminer.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION @VRM_FILE_VERSION_COMMA@,0
+ PRODUCTVERSION @VRM_FILE_VERSION_COMMA@,0
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904e4"
+        BEGIN
+            VALUE "CompanyName", "Vericonomy"
+            VALUE "FileDescription", "Verium CPU Miner (scrypt²)"
+            VALUE "FileVersion", "@VRM_VERSION_STRING@"
+            VALUE "InternalName", "veriumminer"
+            VALUE "LegalCopyright", "Copyright (C) Vericonomy contributors"
+            VALUE "OriginalFilename", "cpuminer.exe"
+            VALUE "ProductName", "Verium Miner"
+            VALUE "ProductVersion", "@VRM_VERSION_STRING@"
+            VALUE "Comments", "Open-source CPU miner for Verium (build @VRM_GIT_REV@). https://github.com/JoshiOS-VRY/veriumMiner"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1252
+    END
+END

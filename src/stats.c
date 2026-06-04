@@ -25,11 +25,48 @@ static time_t g_last_ema_tick;
 static time_t g_last_panel;
 static int g_status_interval = 30;
 
+/* Authoritative share counters owned by stats.c (lock-guarded). */
+static uint32_t g_shares_acc;
+static uint32_t g_shares_rej;
+
+/* Latest memory-health snapshot (log-only telemetry). */
+static size_t g_mem_sockbuf_cap;
+static size_t g_mem_sockbuf_used;
+static int g_mem_workio_qdepth;
+
+extern bool opt_debug;
 extern int opt_n_threads;
-extern uint32_t accepted_count;
-extern uint32_t rejected_count;
 extern double *thr_hashrates;
 extern char *rpc_user;
+
+/* Escape a string for safe embedding inside a JSON string literal. */
+static void stats_json_escape(const char *src, char *dst, size_t dstsz)
+{
+	size_t di = 0;
+
+	if (!dstsz)
+		return;
+	if (!src) {
+		dst[0] = '\0';
+		return;
+	}
+	for (; *src && di + 1 < dstsz; src++) {
+		unsigned char c = (unsigned char)*src;
+		if (c == '"' || c == '\\') {
+			if (di + 2 >= dstsz)
+				break;
+			dst[di++] = '\\';
+			dst[di++] = (char)c;
+		} else if (c < 0x20) {
+			if (di + 6 >= dstsz)
+				break;
+			di += (size_t)snprintf(dst + di, dstsz - di, "\\u%04x", c);
+		} else {
+			dst[di++] = (char)c;
+		}
+	}
+	dst[di] = '\0';
+}
 
 void stats_init(void)
 {
@@ -96,7 +133,21 @@ void stats_record_hashrate(int thr_id, double hashes_per_sec)
 
 void stats_record_share(bool accepted)
 {
-	(void)accepted;
+	pthread_mutex_lock(&stats_lock);
+	if (accepted)
+		g_shares_acc++;
+	else
+		g_shares_rej++;
+	pthread_mutex_unlock(&stats_lock);
+}
+
+void stats_record_mem(size_t sockbuf_cap, size_t sockbuf_used, int workio_qdepth)
+{
+	pthread_mutex_lock(&stats_lock);
+	g_mem_sockbuf_cap = sockbuf_cap;
+	g_mem_sockbuf_used = sockbuf_used;
+	g_mem_workio_qdepth = workio_qdepth;
+	pthread_mutex_unlock(&stats_lock);
 }
 
 double stats_total_hps(void)
@@ -132,12 +183,22 @@ double stats_accept_pct(void)
 {
 	uint32_t a, r;
 	pthread_mutex_lock(&stats_lock);
-	a = accepted_count;
-	r = rejected_count;
+	a = g_shares_acc;
+	r = g_shares_rej;
 	pthread_mutex_unlock(&stats_lock);
 	if (a + r == 0)
 		return 100.0;
 	return 100.0 * (double)a / (double)(a + r);
+}
+
+void stats_get_shares(uint32_t *accepted, uint32_t *rejected)
+{
+	pthread_mutex_lock(&stats_lock);
+	if (accepted)
+		*accepted = g_shares_acc;
+	if (rejected)
+		*rejected = g_shares_rej;
+	pthread_mutex_unlock(&stats_lock);
 }
 
 static void format_whole_commas(long long whole, char *out, size_t outsz)
@@ -199,6 +260,9 @@ void stats_maybe_print_panel(bool force)
 		return;
 	g_last_panel = now;
 
+	size_t mem_cap, mem_used;
+	int mem_qdepth;
+
 	pthread_mutex_lock(&stats_lock);
 	{
 		double total = 0.0;
@@ -209,11 +273,24 @@ void stats_maybe_print_panel(bool force)
 		stats_format_hpm(g_ema_60, rate_avg, sizeof(rate_avg));
 		stats_format_hpm(g_ema_900, rate_15m, sizeof(rate_15m));
 	}
+	mem_cap = g_mem_sockbuf_cap;
+	mem_used = g_mem_sockbuf_used;
+	mem_qdepth = g_mem_workio_qdepth;
 	pthread_mutex_unlock(&stats_lock);
+
+	/* Memory-health telemetry stays on the debug channel to keep the normal
+	 * panel uncluttered while still surfacing long-run buffer/queue drift. */
+	if (opt_debug && mem_cap)
+		applog(LOG_DEBUG,
+			"mem: sockbuf %zu/%zu bytes, workio queue depth %d",
+			mem_used, mem_cap, mem_qdepth);
 
 	get_currentalgo(algo, sizeof(algo));
 	temp = cpu_temp(0);
 	tp = topo_get();
+
+	uint32_t acc = 0, rej = 0;
+	stats_get_shares(&acc, &rej);
 
 	logfmt_status_panel(
 		g_pool_connected != 0,
@@ -221,8 +298,8 @@ void stats_maybe_print_panel(bool force)
 		g_worker_name[0] ? g_worker_name : "-",
 		algo,
 		rate_now, rate_avg, rate_15m,
-		(unsigned)accepted_count,
-		(unsigned)(accepted_count + rejected_count),
+		(unsigned)acc,
+		(unsigned)(acc + rej),
 		stats_accept_pct(),
 		temp,
 		g_n_threads,
@@ -243,6 +320,13 @@ char *stats_json_summary(void)
 		return NULL;
 	{
 		float temp = cpu_temp(0);
+		uint32_t acc = 0, rej = 0;
+		char pool_esc[128], worker_esc[256];
+
+		stats_get_shares(&acc, &rej);
+		stats_json_escape(g_pool_status, pool_esc, sizeof(pool_esc));
+		stats_json_escape(g_worker_name, worker_esc, sizeof(worker_esc));
+
 		if (temp < 0.0f) {
 			snprintf(buf, 2048,
 				"{\"hashrate_hps\":%.2f,\"hashrate_ema_60s\":%.2f,"
@@ -251,9 +335,9 @@ char *stats_json_summary(void)
 				"\"pool_status\":\"%s\",\"worker\":\"%s\",\"temp_c\":null,"
 				"\"threads\":%d}",
 				total, ema60, ema900,
-				(unsigned)accepted_count, (unsigned)rejected_count,
+				(unsigned)acc, (unsigned)rej,
 				stats_accept_pct(), (long)up, g_pool_connected,
-				g_pool_status, g_worker_name, g_n_threads);
+				pool_esc, worker_esc, g_n_threads);
 			return buf;
 		}
 		snprintf(buf, 2048,
@@ -263,9 +347,9 @@ char *stats_json_summary(void)
 			"\"pool_status\":\"%s\",\"worker\":\"%s\",\"temp_c\":%.1f,"
 			"\"threads\":%d}",
 			total, ema60, ema900,
-			(unsigned)accepted_count, (unsigned)rejected_count,
+			(unsigned)acc, (unsigned)rej,
 			stats_accept_pct(), (long)up, g_pool_connected,
-			g_pool_status, g_worker_name, (double)temp, g_n_threads);
+			pool_esc, worker_esc, (double)temp, g_n_threads);
 	}
 	return buf;
 }

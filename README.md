@@ -17,20 +17,84 @@ back through Vericoin/Verium Reserve work to
 The shipped binary is still named `cpuminer` for compatibility with existing
 configs and pool scripts.
 
-There are **no prebuilt release binaries** yet — install by cloning this repo and
-building with CMake (see [Quick start](#quick-start)).
+**The fastest way to start mining is to download a prebuilt binary** from the
+[Releases page](https://github.com/JoshiOS-VRY/veriumMiner/releases) — see
+[Download & run](#download--run). Building from source is the advanced path.
 
 #### Table of contents
 
-* [Quick start](#quick-start)
+* [Download & run](#download--run)
+* [Quick start (build from source)](#quick-start-build-from-source)
+* [Running headless / as a service](#running-headless--as-a-service)
 * [What's new in Tippy](#whats-new-in-tippy)
 * [Supported platforms](#supported-platforms)
 * [Dependencies](#dependencies)
 * [Build](#build)
 * [Build options](#build-options)
 * [Usage](#usage)
+* [Troubleshooting](#troubleshooting)
 * [Hash regression tests](#hash-regression-tests)
+* [Security](#security)
+* [Contributing](#contributing)
 * [License](#license)
+
+
+Download & run
+--------------
+
+Prebuilt, checksummed binaries are published for every release. Verify the
+download against `SHA256SUMS` before running.
+
+1. Go to the [Releases page](https://github.com/JoshiOS-VRY/veriumMiner/releases)
+   and download the archive for your platform:
+   * `veriumminer-<ver>-windows-x86_64.zip` — single self-contained
+     `cpuminer.exe` (no extra DLLs needed), plus an optional installer
+     (`veriumminer-setup.exe`).
+   * `veriumminer-<ver>-linux-x86_64.tar.gz` / `...-linux-arm64.tar.gz`
+   * `veriumminer-<ver>-macos-arm64.tar.gz` / `...-macos-x86_64.tar.gz`
+2. Extract it, then either run the setup wizard or pass flags directly.
+
+```sh
+# Windows (PowerShell): unzip, then
+.\cpuminer.exe --setup
+.\cpuminer.exe
+
+# Linux / macOS
+tar xzf veriumminer-*.tar.gz && cd veriumminer-*
+./cpuminer --setup
+./cpuminer
+```
+
+Or one-shot against the official pool (run from the folder you extracted — no
+`build/` path):
+
+```powershell
+# Windows (PowerShell or cmd, from the extracted folder)
+.\cpuminer.exe -o stratum+tcp://mine.vericonomy.com:3333 -u VYourAddress.worker1 -p x -t 0
+```
+
+```sh
+# Linux / macOS
+./cpuminer -o stratum+tcp://mine.vericonomy.com:3333 -u VYourAddress.worker1 -p x -t 0
+```
+
+On Windows you can also double-click `contrib\windows\mine-verium-pool.bat`
+(after editing your address inside the file).
+
+**Verify checksums:**
+
+```sh
+# Linux/macOS
+sha256sum -c SHA256SUMS            # (shasum -a 256 -c on macOS)
+# Windows (PowerShell)
+Get-FileHash .\cpuminer.exe -Algorithm SHA256
+```
+
+> Release binaries are currently **unsigned**; the signing pipeline is wired in
+> and will be enabled once certificates are provisioned. Until then, verify with
+> `SHA256SUMS` and see [Troubleshooting](#troubleshooting) for antivirus notes.
+>
+> Docker: `docker run --rm ghcr.io/joshios-vry/veriumminer:latest -o stratum+tcp://mine.vericonomy.com:3333 -u VYourAddress.worker1 -p x`
 
 
 What's new in Tippy
@@ -59,8 +123,8 @@ See [`docs/AUDIT_IMPLEMENTATION.md`](docs/AUDIT_IMPLEMENTATION.md) for the full
 audit-to-code mapping.
 
 
-Quick start
------------
+Quick start (build from source)
+-------------------------------
 
 ### 1. Get the source
 
@@ -125,8 +189,36 @@ then:
 ./build/cpuminer -c /path/to/cpuminer-conf.json
 ```
 
-On Windows, use `.\build\cpuminer.exe` and put MinGW on `PATH` as in
-[Windows](#windows-msys2--mingw-w64).
+On Windows, a **source build** needs MinGW DLLs on `PATH` (see
+[Windows](#windows-msys2--mingw-w64)); the **release** `.exe` is statically
+linked and needs nothing extra.
+
+
+Running headless / as a service
+-------------------------------
+
+For servers, SBCs (Raspberry Pi), and other non-GUI devices, run the miner in
+the background and persist logs with `--log-file`:
+
+```sh
+cpuminer -c /etc/veriumminer/default.json --log-file /var/log/veriumminer/miner.log
+```
+
+Ready-to-use service definitions ship in [`contrib/`](contrib):
+
+* **Linux (systemd):** [`contrib/systemd/cpuminer@.service`](contrib/systemd/cpuminer@.service)
+  — `systemctl enable --now cpuminer@default`
+* **macOS (launchd):** [`contrib/launchd/com.vericonomy.veriumminer.plist`](contrib/launchd/com.vericonomy.veriumminer.plist)
+* **Windows (Scheduled Task):** [`contrib/windows/install-service.ps1`](contrib/windows/install-service.ps1)
+  — run from an elevated PowerShell to auto-start at boot.
+
+Use `--profile dedicated` on mining-only machines for higher CPU priority, or
+the default `background` profile on shared/desktop machines to stay responsive.
+A full walkthrough is in [`docs/HEADLESS.md`](docs/HEADLESS.md).
+
+The miner shuts down cleanly on `Ctrl-C` / `SIGTERM` (and the `quit` API
+command): it stops the worker threads, frees scrypt scratchpads, closes the
+pool connection, and exits — so service restarts are graceful.
 
 
 Supported platforms
@@ -216,6 +308,33 @@ $env:PATH = "C:\msys64\mingw64\bin;" + $env:PATH
 .\build\cpuminer.exe -o stratum+tcp://mine.vericonomy.com:3333 -u VYourAddress.worker1 -p x
 ```
 
+#### Windows Defender false positives (Bearfoos / trojan)
+
+Unsigned CPU miners are often flagged by Microsoft Defender machine learning
+(e.g. `Trojan:Win32/Bearfoos.A!ml`) even when you build this project yourself.
+That is a **heuristic false positive**, not proof the binary is malicious.
+
+**In the codebase we reduce ambiguity by:**
+
+- Embedding proper **version resources** (Company: Vericonomy, Product: Verium
+  Miner, description, copyright) and an **application manifest** (`asInvoker`)
+  in Windows builds — see `res/cpuminer.rc.in` and `res/veriumminer.manifest`.
+- Keeping the binary name `cpuminer` only for config compatibility; metadata
+  identifies it as Verium Miner.
+
+**What actually stops most false positives for end users:**
+
+1. **Code signing** — Authenticode-sign release builds with your publisher cert.
+2. **Microsoft submission** — Report a false positive:
+   [Microsoft Security Intelligence file submission](https://www.microsoft.com/en-us/wdsi/filesubmission)
+   (category: Incorrect detection / false positive).
+3. **Local exclusion** — For your own dev builds, exclude only
+   `veriumMiner\build` (not broad folders).
+
+After changing Windows resources, **reconfigure and rebuild** so `cpuminer.exe`
+is regenerated. If Defender quarantined the old binary, restore or rebuild, then
+add the build-folder exclusion before running.
+
 ### FreeBSD
 
 ```sh
@@ -243,6 +362,8 @@ Pass these with `-D<option>=ON|OFF` at configure time:
 | `MARCH_NATIVE` | `OFF`   | Build with `-march=native` for a single specific machine |
 | `ENABLE_LTO`   | `ON`    | Link-time optimization for Release builds                |
 | `BUILD_TESTS`  | `ON`    | Build the hash regression tests                          |
+| `STATIC_BUILD` | `OFF`   | Statically link deps for a dependency-free distributable (used by release CI; on Windows produces a single DLL-free `cpuminer.exe`) |
+| `WERROR`       | `OFF`   | Treat warnings as errors (CI gate)                       |
 
 Example, tuned for the local machine:
 
@@ -266,15 +387,25 @@ the portable C implementation.
 Usage
 =====
 
+After a **release download**, run the binary from the extracted folder (add
+`.\` on Windows). Only **build-from-source** workflows use `build/cpuminer`:
+
+```powershell
+# Windows (release)
+.\cpuminer.exe -o stratum+tcp://POOL:PORT -u WALLET.WORKER -p x -t 0
+```
+
 ```sh
-./build/cpuminer -o stratum+tcp://POOL:PORT -u WALLET.WORKER -p x -t <threads>
+# Linux / macOS (release)
+./cpuminer -o stratum+tcp://POOL:PORT -u WALLET.WORKER -p x -t 0
 ```
 
 **Default pool (Vericonomy):** `stratum+tcp://mine.vericonomy.com:3333` — username
-`VRM_ADDRESS.workerName`, password `x` (any value). See [Quick start](#quick-start)
-for a copy-paste example.
+`VRM_ADDRESS.workerName`, password `x` (any value). See
+[Download & run](#download--run) for copy-paste examples.
 
-Run `./build/cpuminer --help` for the full list of options. Common ones:
+Run `cpuminer --help` / `cpuminer.exe --help` for the full list of options.
+Common ones:
 
 * `-o, --url` — primary pool URL (`stratum+tcp://...`)
 * `--backup-url` — comma-separated backup pools (automatic failover)
@@ -284,6 +415,9 @@ Run `./build/cpuminer --help` for the full list of options. Common ones:
 * `--tune` — print recommended thread count at startup
 * `--status-interval` — seconds between status summaries (hashrate, shares, temp)
 * `--profile dedicated` — higher CPU priority for dedicated mining rigs
+* `--log-file FILE` — also append plain-text logs to FILE (headless/service)
+* `--selftest` — verify the scrypt core against the golden vector, then exit (0 = OK)
+* `-B, --background` — detach and run in the background
 * `-c, --config` — JSON config file (see `cpuminer-conf.json`)
 
 Hashrate is reported in **hashes per minute (H/m)** in logs and the status
@@ -328,6 +462,21 @@ the host. With no prefix an HTTP proxy is assumed; when `--proxy` is not used,
 the `http_proxy` / `all_proxy` environment variables are honored.
 
 
+Troubleshooting
+===============
+
+| Symptom | Fix |
+|---------|-----|
+| **Antivirus flags `cpuminer.exe`** (e.g. `Trojan:Win32/Bearfoos.A!ml`) | A heuristic false positive common to all CPU miners. Verify with `SHA256SUMS`, then add an exclusion for the miner folder, or submit a [false-positive report to Microsoft](https://www.microsoft.com/en-us/wdsi/filesubmission). Signed releases (coming) will reduce this. See the Windows section above. |
+| **`error while loading shared libraries: libcurl…` (Linux)** | Install the runtime: `sudo apt-get install -y libcurl4`. Prebuilt Linux binaries link libgcc/libstdc++ statically but use the system libcurl. |
+| **`scrypt buffer allocation failed` / out of memory** | Each thread needs ~1 GB for the N=1048576 scratchpad. Lower `-t` (threads) or add RAM/swap. Use `--tune` to see the recommended thread count. |
+| **Low/zero hashrate on a shared machine** | Use the default `background` profile; reserve a core for the OS by lowering `-t`. For mining-only rigs use `--profile dedicated`. |
+| **Large pages not used (slower hashrate)** | On Linux, grant locked-memory limits (the systemd unit sets `LimitMEMLOCK=infinity`) and enable hugepages. On Windows, run elevated once so the "Lock pages in memory" privilege can be acquired. |
+| **All shares rejected** | Check the wallet address (`user`) and that the pool URL/port are correct; watch for "High reject rate" warnings in the log. |
+
+For headless setup details and more, see [`docs/HEADLESS.md`](docs/HEADLESS.md).
+
+
 Hash regression tests
 ======================
 
@@ -345,7 +494,8 @@ Ensure the machine has enough free RAM before running it.
 You can also print the canonical empty-buffer digest directly:
 
 ```sh
-./build/cpuminer --cputest
+cpuminer --cputest          # release binary in PATH or current directory
+# or, if you built from source: ./build/cpuminer --cputest
 ```
 
 To lock the golden vector for your build, run `test_hash` once, copy the value
@@ -368,6 +518,22 @@ To track upstream fixes from FireWorm71:
 git remote add upstream https://github.com/fireworm71/veriumMiner.git
 git fetch upstream
 ```
+
+
+Security
+========
+
+To report a vulnerability, see [`SECURITY.md`](SECURITY.md). Please do **not**
+open public issues for security problems. Always verify downloads against the
+published `SHA256SUMS`.
+
+
+Contributing
+============
+
+Contributions are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the
+build/test workflow, coding conventions, and the rule that scrypt² output is
+consensus-bound and must never change without golden-vector validation.
 
 
 License

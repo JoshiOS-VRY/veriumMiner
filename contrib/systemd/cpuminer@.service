@@ -1,0 +1,44 @@
+# Verium Miner systemd service (templated per config name).
+#
+# Install:
+#   sudo cp cpuminer /usr/local/bin/
+#   sudo mkdir -p /etc/veriumminer
+#   sudo cp cpuminer-conf.json /etc/veriumminer/default.json   # edit wallet/pool
+#   sudo cp contrib/systemd/cpuminer@.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now cpuminer@default
+#
+# Logs:   journalctl -u cpuminer@default -f
+# Status: systemctl status cpuminer@default
+#
+# The instance name (%i) selects /etc/veriumminer/%i.json, so you can run
+# several configs: cpuminer@default, cpuminer@rig2, ...
+
+[Unit]
+Description=Verium Miner (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Run unprivileged. Create the user once with:
+#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin veriumminer
+User=veriumminer
+Group=veriumminer
+ExecStart=/usr/local/bin/cpuminer -c /etc/veriumminer/%i.json
+Restart=always
+RestartSec=10
+# Background profile keeps the rig responsive; switch to "dedicated" in the
+# config for mining-only machines.
+Nice=10
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/log/veriumminer
+# Large pages / locked memory help scrypt throughput (optional).
+LimitMEMLOCK=infinity
+
+[Install]
+WantedBy=multi-user.target

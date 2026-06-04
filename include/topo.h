@@ -9,8 +9,11 @@
 struct topo_info {
 	int logical_cpus;
 	int physical_cpus;
+	/* Performance (P) cores on hybrid CPUs; 0 if unknown. */
+	int performance_cpus;
 	uint64_t l3_bytes;
 	uint64_t total_ram_bytes;
+	uint64_t avail_ram_bytes;
 	/* Logical CPU indices assigned to mining workers (distinct physical where possible). */
 	int worker_cpu[TOPO_MAX_CPUS];
 	int worker_count;

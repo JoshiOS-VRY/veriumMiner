@@ -519,9 +519,29 @@ static inline void scrypt_core(uint32_t *X, uint32_t *V, int N)
 #define scrypt_best_throughput() 1
 #endif
 
+/*
+ * Bytes of V (scrypt ROM) required for the active SIMD core.
+ * x86-64 asm uses N*128 for 1-way and N*6*128 for 3-way/6-way (see scrypt_core*
+ * leaq/shl setup). Allocating SCRYPT_MAX_WAYS (24) per thread reserved ~4x more
+ * than the AVX2 path touches and inflated process memory (e.g. ~12 GB for 16
+ * threads). scanhash still uses SCRYPT_MAX_WAYS for stack layout; only the
+ * heap scratchpad is sized to rom_lanes.
+ */
+int scrypt_rom_lane_count(void)
+{
+#if defined(USE_ASM) && defined(__x86_64__)
+	int tp = scrypt_best_throughput();
+	if (tp >= 3)
+		return 6;
+	return 1;
+#else
+	return SCRYPT_MAX_WAYS > 0 ? SCRYPT_MAX_WAYS : 1;
+#endif
+}
+
 size_t scrypt_scratchpad_bytes(int N)
 {
-	return (size_t)N * (size_t)SCRYPT_MAX_WAYS * 128 + 63;
+	return (size_t)N * (size_t)scrypt_rom_lane_count() * 128 + 63;
 }
 
 /*
@@ -530,18 +550,34 @@ size_t scrypt_scratchpad_bytes(int N)
  * huge pages. Windows may use MEM_LARGE_PAGES when permitted.
  * The returned pointer is always free()-compatible across platforms.
  */
+static int g_scrypt_large_pages;
+
+int scrypt_large_pages_active(void)
+{
+	return g_scrypt_large_pages;
+}
+
 unsigned char *scrypt_buffer_alloc(int N)
 {
 	size_t size = scrypt_scratchpad_bytes(N);
 
 #if defined(WIN32)
 	{
+		static volatile LONG lp_logged;
 		size_t aligned = (size + 4095) & ~(size_t)4095;
 		void *p = VirtualAlloc(NULL, aligned, MEM_COMMIT | MEM_RESERVE | MEM_LARGE_PAGES, PAGE_READWRITE);
-		if (!p)
-			p = VirtualAlloc(NULL, aligned, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-		if (p)
+		if (p) {
+			g_scrypt_large_pages = 1;
+			if (InterlockedCompareExchange(&lp_logged, 1, 0) == 0)
+				applog(LOG_NOTICE, "Scrypt scratchpad: using large (2 MB) pages");
 			return (unsigned char *)p;
+		}
+		p = VirtualAlloc(NULL, aligned, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		if (p) {
+			if (InterlockedCompareExchange(&lp_logged, 1, 0) == 0)
+				applog(LOG_NOTICE, "Scrypt scratchpad: using 4 KB pages");
+			return (unsigned char *)p;
+		}
 	}
 #endif
 

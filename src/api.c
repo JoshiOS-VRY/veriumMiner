@@ -152,7 +152,7 @@ static char *getsummary(char *params)
 	get_currentalgo(algo, sizeof(algo));
 
 	*buffer = '\0';
-	sprintf(buffer, "NAME=%s;VER=%s;API=%s;"
+	snprintf(buffer, MYBUFSIZ, "NAME=%s;VER=%s;API=%s;"
 		"ALGO=%s;CPUS=%d;HPM=%.2f;HPM_AVG60=%.2f;HPM_AVG900=%.2f;"
 		"SOLV=%d;ACC=%d;REJ=%d;ACCPCT=%.2f;ACCMN=%.3f;DIFF=%.6f;"
 		"TEMP=%.1f;FAN=%d;FREQ=%d;UPTIME=%.0f;TS=%u;"
@@ -248,7 +248,7 @@ static char *remote_seturl(char *params)
 		return buffer;
 	parse_arg('o', params);
 	stratum_need_reset = true;
-	sprintf(buffer, "%s", "ok|");
+	snprintf(buffer, MYBUFSIZ, "%s", "ok|");
 	return buffer;
 }
 
@@ -261,7 +261,7 @@ static char *remote_quit(char *params)
 	if (!check_remote_access())
 		return buffer;
 	bye = 1;
-	sprintf(buffer, "%s", "bye|");
+	snprintf(buffer, MYBUFSIZ, "%s", "bye|");
 	return buffer;
 }
 
@@ -388,7 +388,10 @@ static int websocket_handshake(SOCKETTYPE c, char *result, char *clientkey)
 	if (opt_protocol)
 		applog(LOG_DEBUG, "clientkey: %s", clientkey);
 
-	sprintf(inpkey, "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11", clientkey);
+	/* Bound the copy: a client-supplied Sec-WebSocket-Key of arbitrary length
+	 * must never overflow this fixed buffer. */
+	snprintf(inpkey, sizeof(inpkey),
+		"%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11", clientkey ? clientkey : "");
 
 	// SHA-1 test from rfc, returns in base64 "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
 	//sprintf(inpkey, "dGhlIHNhbXBsZSBub25jZQ==258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
@@ -399,7 +402,7 @@ static int websocket_handshake(SOCKETTYPE c, char *result, char *clientkey)
 
 	base64_encode(sha1, 20, seckey, sizeof(seckey));
 
-	sprintf(answer,
+	snprintf(answer, sizeof(answer),
 		"HTTP/1.1 101 Switching Protocol\r\n"
 		"Upgrade: WebSocket\r\nConnection: Upgrade\r\n"
 		"Sec-WebSocket-Accept: %s\r\n"
@@ -689,7 +692,9 @@ static void api()
 		if (addrok) {
 			bool fail;
 			char *wskey = NULL;
-			n = recv(c, &buf[0], SOCK_REC_BUFSZ, 0);
+			/* Read up to the full request buffer; a 1 KiB cap truncated
+			 * larger WebSocket handshakes and HTTP requests. */
+			n = recv(c, &buf[0], MYBUFSIZ - 1, 0);
 
 			fail = SOCKETFAIL(n);
 			if (fail)
@@ -772,8 +777,9 @@ void *api_thread(void *userdata)
 	tq_freeze(mythr->q);
 
 	if (bye) {
-		// quit command
-		proper_exit(1);
+		// quit command: ask for a clean, cooperative shutdown rather than
+		// hard-killing the process mid-share.
+		request_shutdown(0);
 	}
 
 	return NULL;

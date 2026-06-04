@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Verium Miner launchd agent for macOS.
+
+  Install (per-user agent):
+    cp cpuminer /usr/local/bin/
+    mkdir -p ~/Library/Application\ Support/cpuminer
+    cp cpuminer-conf.json ~/Library/Application\ Support/cpuminer/cpuminer-conf.json  # edit
+    cp contrib/launchd/com.vericonomy.veriumminer.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.vericonomy.veriumminer.plist
+
+  Stop / start:
+    launchctl unload ~/Library/LaunchAgents/com.vericonomy.veriumminer.plist
+    launchctl load   ~/Library/LaunchAgents/com.vericonomy.veriumminer.plist
+
+  Logs: /tmp/veriumminer.out / /tmp/veriumminer.err (adjust paths below).
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.vericonomy.veriumminer</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/cpuminer</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+    <key>StandardOutPath</key>
+    <string>/tmp/veriumminer.out</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/veriumminer.err</string>
+</dict>
+</plist>

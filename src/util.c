@@ -45,6 +45,7 @@
 #include "stats.h"
 #include "logfmt.h"
 #include "elist.h"
+#include "tests/golden.h"
 
 extern pthread_mutex_t stats_lock;
 
@@ -78,6 +79,24 @@ struct thread_q {
 	pthread_mutex_t		mutex;
 	pthread_cond_t		cond;
 };
+
+static FILE *applog_file = NULL;
+
+/* Open (append) a plain-text log file for headless/service runs. Colors are
+ * disabled by the caller so both console and file output stay clean. */
+void applog_open_logfile(const char *path)
+{
+	FILE *f;
+
+	if (!path || !path[0])
+		return;
+	f = fopen(path, "a");
+	if (!f) {
+		fprintf(stderr, "Could not open log file %s\n", path);
+		return;
+	}
+	applog_file = f;
+}
 
 void applog(int prio, const char *fmt, ...)
 {
@@ -138,7 +157,7 @@ void applog(int prio, const char *fmt, ...)
 
 		len = 96 + (int) strlen(fmt) + 2;
 		f = (char*) malloc(len);
-		sprintf(f, "%s[%d-%02d-%02d %02d:%02d:%02d]%s %s%s%s %s%s\n",
+		snprintf(f, len, "%s[%d-%02d-%02d %02d:%02d:%02d]%s %s%s%s %s%s%s\n",
 			ts_color,
 			tm.tm_year + 1900,
 			tm.tm_mon + 1,
@@ -151,6 +170,19 @@ void applog(int prio, const char *fmt, ...)
 			msg_color, fmt, use_colors ? CL_N : ""
 		);
 		pthread_mutex_lock(&applog_lock);
+		if (applog_file) {
+			va_list apf;
+			va_copy(apf, ap);
+			/* Plain prefix (no ANSI) for the file. With colors disabled the
+			 * message body fmt is also plain. */
+			fprintf(applog_file, "[%d-%02d-%02d %02d:%02d:%02d] %s ",
+				tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+				tm.tm_hour, tm.tm_min, tm.tm_sec, tag);
+			vfprintf(applog_file, fmt, apf);
+			fputc('\n', applog_file);
+			fflush(applog_file);
+			va_end(apf);
+		}
 		vfprintf(stdout, f, ap);	/* atomic write to stdout */
 		fflush(stdout);
 		free(f);
@@ -755,6 +787,8 @@ static bool b58dec(unsigned char *bin, size_t binsz, const char *b58)
 	bool rc = false;
 
 	outi = (uint32_t *) calloc(outisz, sizeof(*outi));
+	if (!outi)
+		return false;
 
 	for (i = 0; i < b58sz; ++i) {
 		for (c = 0; b58digits[c] != b58[i]; c++)
@@ -1044,18 +1078,54 @@ bool stratum_socket_full(struct stratum_ctx *sctx, int timeout)
 
 #define RBUFSIZE 2048
 #define RECVSIZE (RBUFSIZE - 4)
+/* Once the receive buffer has grown past this (e.g. after an unusually large
+ * pool message) and has drained, shrink it back to RBUFSIZE so a single big
+ * frame cannot permanently inflate long-running RSS. */
+#define SOCKBUF_SHRINK_THRESHOLD (16 * RBUFSIZE)
 
-static void stratum_buffer_append(struct stratum_ctx *sctx, const char *s)
+/* Append to the stratum receive buffer, growing it as needed.
+ * Returns false (leaving the existing buffer intact) if the grow fails, so the
+ * caller can treat it as a recoverable receive error instead of crashing. */
+static bool stratum_buffer_append(struct stratum_ctx *sctx, const char *s)
 {
-	size_t old, n;
+	size_t old, slen, n;
 
 	old = strlen(sctx->sockbuf);
-	n = old + strlen(s) + 1;
+	slen = strlen(s);
+	n = old + slen + 1;
 	if (n >= sctx->sockbuf_size) {
-		sctx->sockbuf_size = n + (RBUFSIZE - (n % RBUFSIZE));
-		sctx->sockbuf = (char*) realloc(sctx->sockbuf, sctx->sockbuf_size);
+		size_t new_size = n + (RBUFSIZE - (n % RBUFSIZE));
+		char *new_buf = (char*) realloc(sctx->sockbuf, new_size);
+		if (!new_buf) {
+			applog(LOG_ERR, "stratum: sockbuf grow to %zu bytes failed",
+				new_size);
+			return false;
+		}
+		sctx->sockbuf = new_buf;
+		sctx->sockbuf_size = new_size;
 	}
-	strcpy(sctx->sockbuf + old, s);
+	memcpy(sctx->sockbuf + old, s, slen + 1);
+	return true;
+}
+
+/* Reclaim an oversized receive buffer once its live contents fit comfortably
+ * back inside the baseline. Runs on the stratum thread only (same as append),
+ * so no extra locking is required. A failed shrink simply keeps the larger
+ * buffer and is not fatal. */
+static void stratum_buffer_maybe_shrink(struct stratum_ctx *sctx)
+{
+	char *shrunk;
+
+	if (!sctx->sockbuf || sctx->sockbuf_size <= SOCKBUF_SHRINK_THRESHOLD)
+		return;
+	if (strlen(sctx->sockbuf) + 1 > RECVSIZE)
+		return;
+
+	shrunk = (char*) realloc(sctx->sockbuf, RBUFSIZE);
+	if (!shrunk)
+		return;
+	sctx->sockbuf = shrunk;
+	sctx->sockbuf_size = RBUFSIZE;
 }
 
 char *stratum_recv_line(struct stratum_ctx *sctx)
@@ -1087,8 +1157,10 @@ char *stratum_recv_line(struct stratum_ctx *sctx)
 					ret = false;
 					break;
 				}
-			} else
-				stratum_buffer_append(sctx, s);
+			} else if (!stratum_buffer_append(sctx, s)) {
+				ret = false;
+				break;
+			}
 		} while (time(NULL) - rstart < 60 && !strstr(sctx->sockbuf, "\n"));
 
 		if (!ret) {
@@ -1110,6 +1182,9 @@ char *stratum_recv_line(struct stratum_ctx *sctx)
 		memmove(sctx->sockbuf, sctx->sockbuf + len + 1, buflen - len + 1);
 	else
 		sctx->sockbuf[0] = '\0';
+
+	/* Drain point: give back memory if a big frame previously grew us. */
+	stratum_buffer_maybe_shrink(sctx);
 
 out:
 	if (sret && opt_protocol)
@@ -1154,8 +1229,24 @@ bool stratum_connect(struct stratum_ctx *sctx, const char *url)
 		sctx->url = strdup(url);
 	}
 	free(sctx->curl_url);
-	sctx->curl_url = (char*) malloc(strlen(url));
-	sprintf(sctx->curl_url, "http%s", strstr(url, "://"));
+	{
+		/* "http" + everything from "://" onward + NUL. Guard against a
+		 * malformed url with no scheme separator (strstr would return NULL
+		 * and the old sprintf undersized the buffer, overflowing the heap). */
+		const char *scheme = strstr(url, "://");
+		size_t curl_url_len;
+		if (!scheme)
+			scheme = "://";
+		curl_url_len = 4 + strlen(scheme) + 1;
+		sctx->curl_url = (char*) malloc(curl_url_len);
+		if (!sctx->curl_url) {
+			applog(LOG_ERR, "Stratum: failed to allocate curl_url");
+			curl_easy_cleanup(sctx->curl);
+			sctx->curl = NULL;
+			return false;
+		}
+		snprintf(sctx->curl_url, curl_url_len, "http%s", scheme);
+	}
 
 	if (opt_protocol)
 		curl_easy_setopt(curl, CURLOPT_VERBOSE, 1);
@@ -1282,13 +1373,20 @@ bool stratum_subscribe(struct stratum_ctx *sctx)
 	bool ret = false, retry = false;
 
 start:
-	s = (char*) malloc(128 + (sctx->session_id ? strlen(sctx->session_id) : 0));
-	if (retry)
-		sprintf(s, "{\"id\": 1, \"method\": \"mining.subscribe\", \"params\": []}");
-	else if (sctx->session_id)
-		sprintf(s, "{\"id\": 1, \"method\": \"mining.subscribe\", \"params\": [\"" USER_AGENT "\", \"%s\"]}", sctx->session_id);
-	else
-		sprintf(s, "{\"id\": 1, \"method\": \"mining.subscribe\", \"params\": [\"" USER_AGENT "\"]}");
+	{
+		size_t slen = 128 + (sctx->session_id ? strlen(sctx->session_id) : 0);
+		s = (char*) malloc(slen);
+		if (!s) {
+			applog(LOG_ERR, "stratum_subscribe: out of memory");
+			goto out;
+		}
+		if (retry)
+			snprintf(s, slen, "{\"id\": 1, \"method\": \"mining.subscribe\", \"params\": []}");
+		else if (sctx->session_id)
+			snprintf(s, slen, "{\"id\": 1, \"method\": \"mining.subscribe\", \"params\": [\"" USER_AGENT "\", \"%s\"]}", sctx->session_id);
+		else
+			snprintf(s, slen, "{\"id\": 1, \"method\": \"mining.subscribe\", \"params\": [\"" USER_AGENT "\"]}");
+	}
 
 	if (!stratum_send_line(sctx, s)) {
 		applog(LOG_ERR, "stratum_subscribe send failed");
@@ -1362,6 +1460,36 @@ out:
 
 extern bool opt_extranonce;
 
+/* Escape a string for safe embedding inside a JSON string literal. Handles
+ * double quotes, backslashes, and control characters so a worker/password that
+ * contains them cannot break the JSON-RPC frame or inject extra fields. */
+static char *json_escape_into(char *dst, size_t dstsz, const char *src)
+{
+	size_t di = 0;
+
+	if (!dstsz)
+		return dst;
+	if (src) {
+		for (; *src && di + 1 < dstsz; src++) {
+			unsigned char c = (unsigned char)*src;
+			if (c == '"' || c == '\\') {
+				if (di + 2 >= dstsz)
+					break;
+				dst[di++] = '\\';
+				dst[di++] = (char)c;
+			} else if (c < 0x20) {
+				if (di + 6 >= dstsz)
+					break;
+				di += (size_t)snprintf(dst + di, dstsz - di, "\\u%04x", c);
+			} else {
+				dst[di++] = (char)c;
+			}
+		}
+	}
+	dst[di] = '\0';
+	return dst;
+}
+
 bool stratum_authorize(struct stratum_ctx *sctx, const char *user, const char *pass)
 {
 	json_t *val = NULL, *res_val, *err_val;
@@ -1369,10 +1497,35 @@ bool stratum_authorize(struct stratum_ctx *sctx, const char *user, const char *p
 	json_error_t err;
 	bool ret = false;
 	int req_id = 0;
+	char *euser, *epass;
+	size_t ulen = user ? strlen(user) : 0;
+	size_t plen = pass ? strlen(pass) : 0;
+	size_t slen;
 
-	s = (char*) malloc(80 + strlen(user) + strlen(pass));
-	sprintf(s, "{\"id\": 2, \"method\": \"mining.authorize\", \"params\": [\"%s\", \"%s\"]}",
-		user, pass);
+	euser = (char*) malloc(ulen * 6 + 1);
+	epass = (char*) malloc(plen * 6 + 1);
+	if (!euser || !epass) {
+		free(euser);
+		free(epass);
+		applog(LOG_ERR, "stratum_authorize: out of memory");
+		return false;
+	}
+	json_escape_into(euser, ulen * 6 + 1, user);
+	json_escape_into(epass, plen * 6 + 1, pass);
+
+	slen = 80 + strlen(euser) + strlen(epass);
+	s = (char*) malloc(slen);
+	if (!s) {
+		free(euser);
+		free(epass);
+		applog(LOG_ERR, "stratum_authorize: out of memory");
+		return false;
+	}
+	snprintf(s, slen,
+		"{\"id\": 2, \"method\": \"mining.authorize\", \"params\": [\"%s\", \"%s\"]}",
+		euser, epass);
+	free(euser);
+	free(epass);
 
 	if (!stratum_send_line(sctx, s))
 		goto out;
@@ -1409,7 +1562,7 @@ bool stratum_authorize(struct stratum_ctx *sctx, const char *user, const char *p
 		goto out;
 
 	// subscribe to extranonce (optional)
-	sprintf(s, "{\"id\": 3, \"method\": \"mining.extranonce.subscribe\", \"params\": []}");
+	snprintf(s, slen, "{\"id\": 3, \"method\": \"mining.extranonce.subscribe\", \"params\": []}");
 
 	if (!stratum_send_line(sctx, s))
 		goto out;
@@ -1503,6 +1656,10 @@ static bool stratum_notify(struct stratum_ctx *sctx, json_t *params)
 		goto out;
 	}
 	merkle = (uchar**) malloc(merkle_count * sizeof(char *));
+	if (merkle_count && !merkle) {
+		applog(LOG_ERR, "Stratum notify: out of memory for Merkle branch");
+		goto out;
+	}
 	for (i = 0; i < merkle_count; i++) {
 		const char *s = json_string_value(json_array_get(merkle_arr, i));
 		if (!s || strlen(s) != 64) {
@@ -1513,6 +1670,13 @@ static bool stratum_notify(struct stratum_ctx *sctx, json_t *params)
 			goto out;
 		}
 		merkle[i] = (uchar*) malloc(32);
+		if (!merkle[i]) {
+			while (i--)
+				free(merkle[i]);
+			free(merkle);
+			applog(LOG_ERR, "Stratum notify: out of memory for Merkle branch");
+			goto out;
+		}
 		hex2bin(merkle[i], s, 32);
 	}
 
@@ -1522,7 +1686,22 @@ static bool stratum_notify(struct stratum_ctx *sctx, json_t *params)
 	coinb2_size = strlen(coinb2) / 2;
 	sctx->job.coinbase_size = coinb1_size + sctx->xnonce1_size +
 	                          sctx->xnonce2_size + coinb2_size;
-	sctx->job.coinbase = (uchar*) realloc(sctx->job.coinbase, sctx->job.coinbase_size);
+	{
+		/* Failure-safe grow: keep the previous coinbase intact if realloc
+		 * fails (the derived xnonce2 pointer would otherwise dangle). */
+		uchar *new_coinbase = (uchar*) realloc(sctx->job.coinbase,
+			sctx->job.coinbase_size);
+		if (!new_coinbase) {
+			int j;
+			pthread_mutex_unlock(&sctx->work_lock);
+			for (j = 0; j < merkle_count; j++)
+				free(merkle[j]);
+			free(merkle);
+			applog(LOG_ERR, "Stratum notify: coinbase realloc failed");
+			goto out;
+		}
+		sctx->job.coinbase = new_coinbase;
+	}
 	sctx->job.xnonce2 = sctx->job.coinbase + coinb1_size + sctx->xnonce1_size;
 	hex2bin(sctx->job.coinbase, coinb1, coinb1_size);
 	memcpy(sctx->job.coinbase + coinb1_size, sctx->xnonce1, sctx->xnonce1_size);
@@ -1596,8 +1775,15 @@ static bool stratum_reconnect(struct stratum_ctx *sctx, json_t *params)
 	if (!host || !port)
 		return false;
 
-	url = (char*) malloc(32 + strlen(host));
-	sprintf(url, "stratum+tcp://%s:%d", host, port);
+	{
+		size_t urllen = 32 + strlen(host);
+		url = (char*) malloc(urllen);
+		if (!url) {
+			applog(LOG_ERR, "stratum_reconnect: out of memory");
+			return false;
+		}
+		snprintf(url, urllen, "stratum+tcp://%s:%d", host, port);
+	}
 
 	if (!opt_redirect) {
 		applog(LOG_INFO, "Ignoring request to reconnect to %s", url);
@@ -1958,6 +2144,9 @@ void tq_free(struct thread_q *tq)
 
 static void tq_freezethaw(struct thread_q *tq, bool frozen)
 {
+	if (!tq)
+		return;
+
 	pthread_mutex_lock(&tq->mutex);
 
 	tq->frozen = frozen;
@@ -1981,6 +2170,9 @@ bool tq_push(struct thread_q *tq, void *data)
 	struct tq_ent *ent;
 	bool rc = true;
 
+	if (!tq)
+		return false;
+
 	ent = (struct tq_ent*) calloc(1, sizeof(*ent));
 	if (!ent)
 		return false;
@@ -2003,11 +2195,31 @@ bool tq_push(struct thread_q *tq, void *data)
 	return rc;
 }
 
+/* Current number of queued entries; used for lightweight memory telemetry. */
+size_t tq_depth(struct thread_q *tq)
+{
+	struct tq_ent *ent;
+	size_t depth = 0;
+
+	if (!tq)
+		return 0;
+
+	pthread_mutex_lock(&tq->mutex);
+	list_for_each_entry(ent, &tq->q, q_node, struct tq_ent)
+		depth++;
+	pthread_mutex_unlock(&tq->mutex);
+
+	return depth;
+}
+
 void *tq_pop(struct thread_q *tq, const struct timespec *abstime)
 {
 	struct tq_ent *ent;
 	void *rval = NULL;
 	int rc;
+
+	if (!tq)
+		return NULL;
 
 	pthread_mutex_lock(&tq->mutex);
 
@@ -2096,5 +2308,43 @@ void print_hash_tests(void)
     printpfx("scrypt:1048576", hash);
 
 	printf("\n");
+}
+
+/*
+ * Consensus golden-vector self-test.
+ *
+ * Hashes the locked empty-buffer vector with the *active* compiled scrypt core
+ * and compares it to the golden digest. This is the runtime gate that any new
+ * SIMD core (ARM64 NEON, AVX-512) must pass before it can be enabled: a binary
+ * that produces the wrong digest (bad build, overclock, mis-detected core)
+ * fails loudly instead of mining rejects. Returns 0 on pass, non-zero on fail.
+ */
+int scrypt_selftest(void)
+{
+	const char *golden = VERIUM_GOLDEN_EMPTY_N1048576;
+	uint8_t hash[32];
+	uint8_t buf[192] = { 0 };
+	char got[65];
+
+	if (!golden || !golden[0]) {
+		applog(LOG_WARNING, "self-test: no golden vector recorded; skipping");
+		return 0;
+	}
+
+	scrypthash(hash, buf, 1048576);
+
+	for (int i = 0; i < 32; i++)
+		sprintf(got + i * 2, "%02x", hash[i]);
+	got[64] = '\0';
+
+	if (strcmp(got, golden) != 0) {
+		applog(LOG_ERR, "self-test FAILED: scrypt core produced wrong digest");
+		applog(LOG_ERR, "  expected %s", golden);
+		applog(LOG_ERR, "  got      %s", got);
+		return 1;
+	}
+
+	applog(LOG_NOTICE, "self-test passed: scrypt core matches golden vector");
+	return 0;
 }
 

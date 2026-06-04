@@ -1,15 +1,22 @@
 {
-	"_comment": "Verium miner example configuration",
+	"_comment": "Verium Miner configuration. Edit 'user' (and optionally 'pass'), then run the miner with no arguments. Tip: run `cpuminer --setup` to generate this interactively.",
 
-	"url": "stratum+tcp://pool.example.com:7000",
-	"backup-url": "stratum+tcp://backup.example.com:7000",
-	"user": "YOUR_WALLET_ADDRESS.worker1",
+	"url": "stratum+tcp://mine.vericonomy.com:3333",
+	"backup-url": "",
+	"user": "YOUR_VERIUM_ADDRESS.worker1",
 	"pass": "x",
 
+	"_threads": "0 = auto (recommended): picks threads from P-cores, RAM and cache.",
 	"threads": 0,
+
+	"_profile": "'background' keeps the machine responsive; 'dedicated' raises CPU priority for mining-only rigs.",
 	"profile": "background",
+
 	"status-interval": 30,
 	"api-bind": "127.0.0.1:4048",
+
+	"_log-file": "Optional: append plain-text logs to this path for headless/service runs, e.g. \"/var/log/veriumminer/miner.log\".",
+	"log-file": "",
 
 	"quiet": false,
 	"show-diff": false,

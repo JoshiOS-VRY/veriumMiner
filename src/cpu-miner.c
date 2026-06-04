@@ -46,8 +46,12 @@
 #endif
 
 #include "miner.h"
+#include "version.h"
 #include "topo.h"
 #include "stats.h"
+#ifdef WIN32
+#include "compat/win_largepages.h"
+#endif
 #include "logfmt.h"
 #include "pools.h"
 #include "onboard.h"
@@ -116,8 +120,10 @@ static int opt_fail_pause = 30;
 static bool opt_tune = false;
 static int opt_status_interval = 30;
 static bool opt_setup = false;
+static char *opt_log_file = NULL;
 static int opt_profile = 0; /* 0=background, 1=dedicated */
 static volatile int g_shutdown = 0;
+static volatile int g_exit_code = 0;
 static int watchdog_thr_id = -1;
 static time_t g_last_hash_tick;
 static time_t g_last_share_tick;
@@ -128,10 +134,8 @@ static time_t g_last_job_tick;
 static int opt_time_limit = 0;
 int opt_timeout = 300;
 static int opt_scantime = 5;
-static const bool opt_time = true;
 static enum algos opt_algo = ALGO_SCRYPT;
 static int opt_scrypt_n = 1048576;
-static int opt_pluck_n = 128;
 static unsigned int opt_nfactor = 6;
 int opt_n_threads = 0;
 int64_t opt_affinity = -1L;
@@ -257,6 +261,7 @@ Options:\n\
       --profile=MODE    background (default) or dedicated (higher CPU priority)\n\
       --tune            Print cache-aware thread recommendation at startup\n\
       --setup           Interactive first-run configuration wizard\n\
+      --log-file=FILE   Also append plain-text logs to FILE (headless/service)\n\
   -D, --debug           Debug logging\n\
   -P, --protocol-dump   Verbose Stratum protocol log\n\
       --show-diff       Show share difficulty in logs\n\
@@ -269,6 +274,7 @@ Options:\n\
   -B, --background      run the miner in the background\n\
       --benchmark       run in offline benchmark mode\n\
       --cputest         debug hashes from cpu algorithms\n\
+      --selftest        verify the scrypt core against the golden vector (exit 0=ok)\n\
       --cpu-affinity    set process affinity to cpu core(s), mask 0x3 for cores 0 and 1\n\
       --cpu-priority    set process priority (default: 0 idle, 2 normal to 5 highest)\n\
   -b, --api-bind        IP/Port for the miner API (default: 127.0.0.1:4048)\n\
@@ -295,11 +301,13 @@ static struct option const options[] = {
 	{ "status-interval", 1, NULL, 1072 },
 	{ "profile", 1, NULL, 1073 },
 	{ "setup", 0, NULL, 1074 },
+	{ "log-file", 1, NULL, 1076 },
 	{ "dump-share-header", 0, NULL, 1075 },
 	{ "api-remote", 0, NULL, 1030 },
 	{ "background", 0, NULL, 'B' },
 	{ "benchmark", 0, NULL, 1005 },
 	{ "cputest", 0, NULL, 1006 },
+	{ "selftest", 0, NULL, 1077 },
 	{ "cert", 1, NULL, 1001 },
 	{ "coinbase-addr", 1, NULL, 1016 },
 	{ "coinbase-sig", 1, NULL, 1015 },
@@ -391,6 +399,26 @@ void proper_exit(int reason)
 	exit(reason);
 }
 
+/*
+ * Cooperative shutdown. Set the global stop flag, wake the worker and work
+ * I/O threads, and let main() join everything and release resources (scrypt
+ * scratchpads, sockets, CURL). A second request forces an immediate exit so a
+ * wedged thread can never trap the user on Ctrl-C.
+ */
+void request_shutdown(int reason)
+{
+	if (g_shutdown) {
+		proper_exit(reason);
+		return;
+	}
+	g_exit_code = reason;
+	g_shutdown = 1;
+	restart_threads();
+	/* Wake the work I/O thread so main()'s join returns promptly. */
+	if (thr_info && work_thr_id >= 0)
+		tq_freeze(thr_info[work_thr_id].q);
+}
+
 static inline void work_free(struct work *w)
 {
 	if (w->txs) free(w->txs);
@@ -410,7 +438,10 @@ static inline void work_copy(struct work *dest, const struct work *src)
 		dest->job_id = strdup(src->job_id);
 	if (src->xnonce2) {
 		dest->xnonce2 = (uchar*) malloc(src->xnonce2_len);
-		memcpy(dest->xnonce2, src->xnonce2, src->xnonce2_len);
+		if (dest->xnonce2)
+			memcpy(dest->xnonce2, src->xnonce2, src->xnonce2_len);
+		else
+			dest->xnonce2_len = 0;
 	}
 }
 
@@ -465,7 +496,7 @@ static void calc_network_diff(struct work *work)
 }
 
 /*
- * pct to target = 100 * (actual share difficulty / network difficulty).
+ * Pct To Target: 100 * (actual share difficulty / network difficulty).
  * >= 100% means the hash meets the chain target (block candidate).
  */
 static void format_pct_to_target(char *buf, size_t bufsz, const struct work *work, const char *prefix)
@@ -478,11 +509,11 @@ static void format_pct_to_target(char *buf, size_t bufsz, const struct work *wor
 	submit = work->sharediff;
 	pct = 100.0 * submit / net_diff;
 	if (pct >= 100.0)
-		snprintf(buf, bufsz, "%spct to target %.2f%% BLOCK", prefix, pct);
+		snprintf(buf, bufsz, "%sPct To Target: %.2f%% BLOCK FOUND! 🎉", prefix, pct);
 	else if (pct >= 0.01)
-		snprintf(buf, bufsz, "%spct to target %.2f%%", prefix, pct);
+		snprintf(buf, bufsz, "%sPct To Target: %.2f%%", prefix, pct);
 	else
-		snprintf(buf, bufsz, "%spct to target %.4f%%", prefix, pct);
+		snprintf(buf, bufsz, "%sPct To Target: %.4f%%", prefix, pct);
 }
 
 static bool work_decode(const json_t *val, struct work *work)
@@ -594,6 +625,7 @@ static bool gbt_work_decode(const json_t *val, struct work *work)
 	int cbtx_size;
 	uchar *cbtx = NULL;
 	int tx_count, tx_size;
+	size_t txs_len = 0;
 	uchar txc_vi[9];
 	uchar(*merkle_tree)[32] = NULL;
 	bool coinbase_append = false;
@@ -689,6 +721,10 @@ static bool gbt_work_decode(const json_t *val, struct work *work)
 		const char *cbtx_hex = json_string_value(json_object_get(tmp, "data"));
 		cbtx_size = cbtx_hex ? (int) strlen(cbtx_hex) / 2 : 0;
 		cbtx = (uchar*) malloc(cbtx_size + 100);
+		if (!cbtx) {
+			applog(LOG_ERR, "out of memory building coinbasetxn");
+			goto out;
+		}
 		if (cbtx_size < 60 || !hex2bin(cbtx, cbtx_hex, cbtx_size)) {
 			applog(LOG_ERR, "JSON invalid coinbasetxn");
 			goto out;
@@ -710,6 +746,10 @@ static bool gbt_work_decode(const json_t *val, struct work *work)
 		}
 		cbvalue = (int64_t) (json_is_integer(tmp) ? json_integer_value(tmp) : json_number_value(tmp));
 		cbtx = (uchar*) malloc(256);
+		if (!cbtx) {
+			applog(LOG_ERR, "out of memory building coinbase");
+			goto out;
+		}
 		le32enc((uint32_t *)cbtx, 1); /* version */
 		cbtx[4] = 1; /* in-counter */
 		memset(cbtx+5, 0x00, 32); /* prev txout hash */
@@ -781,25 +821,44 @@ static bool gbt_work_decode(const json_t *val, struct work *work)
 
 	n = varint_encode(txc_vi, 1 + tx_count);
 	work->txs = (char*) malloc(2 * (n + cbtx_size + tx_size) + 1);
+	if (!work->txs) {
+		applog(LOG_ERR, "out of memory building tx blob");
+		goto out;
+	}
 	bin2hex(work->txs, txc_vi, n);
 	bin2hex(work->txs + 2*n, cbtx, cbtx_size);
 
+	/* Track the populated length explicitly. The buffer above is sized for
+	 * 2*(n + cbtx_size + tx_size)+1 where tx_size is the summed byte length of
+	 * every transaction, so appending each tx hex below stays in bounds.
+	 * Tracking the offset avoids O(n^2) strcat rescans on large blocks. */
+	txs_len = 2 * (size_t)n + 2 * (size_t)cbtx_size;
+
 	/* generate merkle root */
 	merkle_tree = (uchar(*)[32]) calloc(((1 + tx_count + 1) & ~1), 32);
+	if (!merkle_tree) {
+		applog(LOG_ERR, "out of memory building merkle tree");
+		goto out;
+	}
 	sha256d(merkle_tree[0], cbtx, cbtx_size);
 	for (i = 0; i < tx_count; i++) {
 		tmp = json_array_get(txa, i);
 		const char *tx_hex = json_string_value(json_object_get(tmp, "data"));
-		const int tx_size = tx_hex ? (int) (strlen(tx_hex) / 2) : 0;
-		unsigned char *tx = (uchar*) malloc(tx_size);
-		if (!tx_hex || !hex2bin(tx, tx_hex, tx_size)) {
+		const int this_tx_size = tx_hex ? (int) (strlen(tx_hex) / 2) : 0;
+		unsigned char *tx = (uchar*) malloc(this_tx_size ? this_tx_size : 1);
+		if (!tx_hex || !tx || !hex2bin(tx, tx_hex, this_tx_size)) {
 			applog(LOG_ERR, "JSON invalid transactions");
 			free(tx);
 			goto out;
 		}
-		sha256d(merkle_tree[1 + i], tx, tx_size);
-		if (!submit_coinbase)
-			strcat(work->txs, tx_hex);
+		sha256d(merkle_tree[1 + i], tx, this_tx_size);
+		free(tx);
+		if (!submit_coinbase) {
+			size_t hexlen = strlen(tx_hex);
+			memcpy(work->txs + txs_len, tx_hex, hexlen);
+			txs_len += hexlen;
+			work->txs[txs_len] = '\0';
+		}
 	}
 	n = 1 + tx_count;
 	while (n > 1) {
@@ -851,9 +910,13 @@ out:
 		if (!have_longpoll) {
 			char *lp_uri;
 			tmp = json_object_get(val, "longpolluri");
-			lp_uri = json_is_string(tmp) ? strdup(json_string_value(tmp)) : rpc_url;
+			/* Always hand the longpoll thread its own copy; it frees this
+			 * buffer on reconnect, so passing the shared rpc_url directly
+			 * would free a still-referenced global. */
+			lp_uri = strdup(json_is_string(tmp) ? json_string_value(tmp) : rpc_url);
 			have_longpoll = true;
-			tq_push(thr_info[longpoll_thr_id].q, lp_uri);
+			if (lp_uri)
+				tq_push(thr_info[longpoll_thr_id].q, lp_uri);
 		}
 	}
 
@@ -870,6 +933,7 @@ static int share_result(int result, struct work *work, const char *reason)
 	double hashrate;
 	double sharediff;
 	uint32_t block_height = 0;
+	uint32_t acc = 0, rej = 0;
 	int i;
 	bool block_share;
 	struct share_submit_meta meta;
@@ -879,6 +943,10 @@ static int share_result(int result, struct work *work, const char *reason)
 	for (i = 0; i < opt_n_threads; i++)
 		hashrate += thr_hashrates[i];
 	result ? accepted_count++ : rejected_count++;
+	/* Snapshot counters under the lock so every consumer below sees a
+	 * consistent accepted/total pair instead of racing the increment. */
+	acc = accepted_count;
+	rej = rejected_count;
 	g_last_share_tick = time(NULL);
 	pthread_mutex_unlock(&stats_lock);
 
@@ -899,7 +967,9 @@ static int share_result(int result, struct work *work, const char *reason)
 	}
 
 	if (block_share && result) {
+		pthread_mutex_lock(&stats_lock);
 		solved_count++;
+		pthread_mutex_unlock(&stats_lock);
 		logfmt_block_found(block_height, sharediff, net_diff);
 	} else if (block_share && !result) {
 		applog(LOG_WARNING,
@@ -908,9 +978,10 @@ static int share_result(int result, struct work *work, const char *reason)
 	}
 
 	if (opt_showdiff)
-		sprintf(suppl, "diff %.3f", sharediff);
+		snprintf(suppl, sizeof(suppl), "diff %.3f", sharediff);
 	else
-		sprintf(suppl, "%.2f%%", 100. * accepted_count / (accepted_count + rejected_count));
+		snprintf(suppl, sizeof(suppl), "%.2f%%",
+			(acc + rej) ? 100. * acc / (acc + rej) : 0.);
 
 	stats_record_share(result != 0);
 
@@ -922,18 +993,18 @@ static int share_result(int result, struct work *work, const char *reason)
 		else if (sharediff > 0. && net_diff > 0.) {
 			double pct = 100.0 * sharediff / net_diff;
 			if (pct >= 100.0)
-				snprintf(pctbuf, sizeof(pctbuf), ", pct to target %.2f%% BLOCK", pct);
+				snprintf(pctbuf, sizeof(pctbuf), ", Pct To Target: %.2f%% BLOCK FOUND! 🎉", pct);
 			else if (pct >= 0.01)
-				snprintf(pctbuf, sizeof(pctbuf), ", pct to target %.2f%%", pct);
+				snprintf(pctbuf, sizeof(pctbuf), ", Pct To Target: %.2f%%", pct);
 			else
-				snprintf(pctbuf, sizeof(pctbuf), ", pct to target %.4f%%", pct);
+				snprintf(pctbuf, sizeof(pctbuf), ", Pct To Target: %.4f%%", pct);
 		}
 		logfmt_share(result != 0, block_share,
-			(unsigned long)accepted_count,
-			(unsigned long)(accepted_count + rejected_count),
+			(unsigned long)acc,
+			(unsigned long)(acc + rej),
 			suppl, rate, pctbuf);
-		if (!result && rejected_count > 3 &&
-		    (100. * accepted_count / (accepted_count + rejected_count)) < 90.0)
+		if (!result && rej > 3 &&
+		    (acc + rej) && (100. * acc / (acc + rej)) < 90.0)
 			applog(LOG_WARNING, "High reject rate — only %.1f%% of shares accepted",
 				stats_accept_pct());
 		break;
@@ -1355,7 +1426,10 @@ static bool get_work(struct thr_info *thr, struct work *work)
 	if (!work_heap)
 		return false;
 
-	/* copy returned work into storage provided by caller */
+	/* Release any buffers the caller's slot already owned before we take
+	 * ownership of the heap work's pointers, otherwise the previous
+	 * txs/workid/job_id/xnonce2 leak on every getwork refresh. */
+	work_free(work);
 	memcpy(work, work_heap, sizeof(*work));
 	free(work_heap);
 
@@ -1408,8 +1482,18 @@ static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work,
 
 		free(work->job_id);
 		work->job_id = strdup(sctx->job.job_id);
-		work->xnonce2_len = sctx->xnonce2_size;
-		work->xnonce2 = (uchar*) realloc(work->xnonce2, sctx->xnonce2_size);
+		{
+			/* Failure-safe: keep the prior xnonce2 buffer/length on OOM so
+			 * we never dereference a NULL extranonce while holding the lock. */
+			uchar *new_xn2 = (uchar*) realloc(work->xnonce2, sctx->xnonce2_size);
+			if (!new_xn2) {
+				pthread_mutex_unlock(&sctx->work_lock);
+				applog(LOG_ERR, "stratum_gen_work: xnonce2 realloc failed");
+				return;
+			}
+			work->xnonce2 = new_xn2;
+			work->xnonce2_len = sctx->xnonce2_size;
+		}
 		if (!use_work_en2)
 			memcpy(work->xnonce2, sctx->job.xnonce2, sctx->xnonce2_size);
 		else if (sctx->job.xnonce2 && work->xnonce2_len <= sizeof(saved_en2)) {
@@ -1526,8 +1610,6 @@ static void *miner_thread(void *userdata)
 	uint32_t end_nonce = 0xffffffffU / opt_n_threads * (thr_id + 1) - 0x20;
 	time_t firstwork_time = 0;
 	unsigned char *scratchbuf = NULL;
-	char s[16];
-	int i;
 
 	memset(&work, 0, sizeof(work));
 
@@ -1585,12 +1667,11 @@ static void *miner_thread(void *userdata)
 		}
 		if (!scratchbuf) {
 			applog(LOG_ERR, "worker %d disabled: cannot allocate scratchpad", thr_id);
-			tq_freeze(mythr->q);
-			return NULL;
+			goto out;
 		}
 	}
 
-	while (1) {
+	while (!g_shutdown) {
 		uint64_t hashes_done;
 		struct timeval tv_start, tv_end, diff;
 		int64_t max64;
@@ -1603,15 +1684,16 @@ static void *miner_thread(void *userdata)
 		uint32_t *nonceptr = (uint32_t*) (((char*)work.data) + nonce_oft);
 
 		if (have_stratum) {
-			while (g_work_time && time(NULL) >= g_work_time + WORK_STALE_PAUSE_SEC)
+			while (g_work_time && !g_shutdown &&
+			       time(NULL) >= g_work_time + WORK_STALE_PAUSE_SEC)
 				sleep(1);
 
 			pthread_mutex_lock(&g_work_lock);
 
-			// to clean: is g_work loaded before the memcmp ?
+			/* Nonce range exhausted while still on the same job header:
+			 * roll this thread's extranonce2 locally (handled below). */
 			regen_work = regen_work || ( (*nonceptr) >= end_nonce
-				&& !( memcmp(&work.data[wkcmp_offset], &g_work.data[wkcmp_offset], wkcmp_sz) ||
-				 false ? memcmp(((uint8_t*) work.data) + 43, ((uint8_t*) g_work.data) + 43, 33) : 0));
+				&& !memcmp(&work.data[wkcmp_offset], &g_work.data[wkcmp_offset], wkcmp_sz));
 			/* Nonce range exhausted on the same job: roll this thread's extranonce2
 			 * locally. Never rebuild g_work here — that corrupts shared job state. */
 			if (regen_work && !memcmp(&work.data[wkcmp_offset], &g_work.data[wkcmp_offset],
@@ -1653,8 +1735,7 @@ static void *miner_thread(void *userdata)
 				continue;
 			}
 		}
-		if (memcmp(&work.data[wkcmp_offset], &g_work.data[wkcmp_offset], wkcmp_sz) ||
-			false ? memcmp(((uint8_t*) work.data) + 43, ((uint8_t*) g_work.data) + 43, 33) : 0)
+		if (memcmp(&work.data[wkcmp_offset], &g_work.data[wkcmp_offset], wkcmp_sz))
 		{
 			work_free(&work);
 			work_copy(&work, &g_work);
@@ -1718,8 +1799,6 @@ static void *miner_thread(void *userdata)
 				max64 = opt_scrypt_n < 16 ? 0x3ffff : 0x3fffff / opt_scrypt_n;
 				if (opt_nfactor > 3)
 					max64 >>= (opt_nfactor - 3);
-				else if (opt_nfactor > 16)
-					max64 = 0xF;
 				break;
 			}
 		}
@@ -1783,6 +1862,9 @@ static void *miner_thread(void *userdata)
 
 	}
 
+	if (scratchbuf)
+		scrypt_buffer_free(scratchbuf, opt_scrypt_n);
+
 out:
 	tq_freeze(mythr->q);
 
@@ -1839,7 +1921,7 @@ start:
 	if (!opt_quiet)
 		applog(LOG_BLUE, "Long-polling on %s", lp_url);
 
-	while (1) {
+	while (!g_shutdown) {
 		json_t *val;
 		char *req = NULL;
 		int err;
@@ -1848,7 +1930,6 @@ start:
 			req = (char*) malloc(strlen(gbt_lp_req) + strlen(lp_id) + 1);
 			sprintf(req, gbt_lp_req, lp_id);
 		}
-		val = json_rpc_call(curl, rpc_url, rpc_userpass, getwork_req, &err, JSON_RPC_LONGPOLL);
 		val = json_rpc_call(curl, lp_url, rpc_userpass,
 				    req ? req : getwork_req, &err,
 				    JSON_RPC_LONGPOLL);
@@ -1999,7 +2080,7 @@ static void *stratum_thread(void *userdata)
 		goto out;
 	applog(LOG_INFO, "Connecting to pool %s", stratum.url);
 
-	while (1) {
+	while (!g_shutdown) {
 		int failures = 0;
 
 		if (stratum_need_reset) {
@@ -2015,6 +2096,8 @@ static void *stratum_thread(void *userdata)
 		}
 
 		while (!stratum.curl) {
+			if (g_shutdown)
+				goto out;
 			pthread_mutex_lock(&g_work_lock);
 			g_work_time = 0;
 			pthread_mutex_unlock(&g_work_lock);
@@ -2106,6 +2189,10 @@ static void *stratum_thread(void *userdata)
 		if (!stratum_handle_method(&stratum, s))
 			stratum_handle_response(s);
 		free(s);
+
+		stats_record_mem(stratum.sockbuf_size,
+			stratum.sockbuf ? strlen(stratum.sockbuf) : 0,
+			(int) tq_depth(thr_info[work_thr_id].q));
 	}
 out:
 	return NULL;
@@ -2113,6 +2200,7 @@ out:
 
 static void show_version_and_exit(void)
 {
+	printf("Verium Miner %s\n", VRM_VERSION_FULL);
 	printf(" built "
 #ifdef _MSC_VER
 	 "with VC++ %d", msver());
@@ -2210,7 +2298,7 @@ static void strhide(char *s)
 void parse_arg(int key, char *arg)
 {
 	char *p;
-	int v, i;
+	int v;
 	uint64_t ul;
 	double d;
 
@@ -2267,6 +2355,10 @@ void parse_arg(int key, char *arg)
 		break;
 	case 1074:
 		opt_setup = true;
+		break;
+	case 1076:
+		free(opt_log_file);
+		opt_log_file = strdup(arg);
 		break;
 	case 1075:
 		opt_dump_share_header = true;
@@ -2448,6 +2540,8 @@ void parse_arg(int key, char *arg)
 	case 1006:
 		print_hash_tests();
 		exit(0);
+	case 1077:
+		exit(scrypt_selftest());
 	case 1007:
 		want_stratum = false;
 		opt_extranonce = false;
@@ -2580,6 +2674,12 @@ static void parse_config_extras(json_t *config)
 	val = json_object_get(config, "profile");
 	if (json_is_string(val) && !strcasecmp(json_string_value(val), "dedicated"))
 		opt_profile = 1;
+
+	val = json_object_get(config, "log-file");
+	if (json_is_string(val) && json_string_value(val)[0]) {
+		free(opt_log_file);
+		opt_log_file = strdup(json_string_value(val));
+	}
 }
 
 void parse_config(json_t *config, char *ref)
@@ -2652,12 +2752,12 @@ static void signal_handler(int sig)
 		applog(LOG_INFO, "SIGHUP received");
 		break;
 	case SIGINT:
-		applog(LOG_INFO, "SIGINT received, exiting");
-		proper_exit(0);
+		applog(LOG_INFO, "SIGINT received, shutting down");
+		request_shutdown(0);
 		break;
 	case SIGTERM:
-		applog(LOG_INFO, "SIGTERM received, exiting");
-		proper_exit(0);
+		applog(LOG_INFO, "SIGTERM received, shutting down");
+		request_shutdown(0);
 		break;
 	}
 }
@@ -2666,12 +2766,12 @@ BOOL WINAPI ConsoleHandler(DWORD dwType)
 {
 	switch (dwType) {
 	case CTRL_C_EVENT:
-		applog(LOG_INFO, "CTRL_C_EVENT received, exiting");
-		proper_exit(0);
+		applog(LOG_INFO, "CTRL_C_EVENT received, shutting down");
+		request_shutdown(0);
 		break;
 	case CTRL_BREAK_EVENT:
-		applog(LOG_INFO, "CTRL_BREAK_EVENT received, exiting");
-		proper_exit(0);
+		applog(LOG_INFO, "CTRL_BREAK_EVENT received, shutting down");
+		request_shutdown(0);
 		break;
 	default:
 		return false;
@@ -2691,7 +2791,8 @@ static int thread_create(struct thr_info *thr, void* func)
 
 static void show_credits(void)
 {
-	printf("\nVerium Miner %s - multi-threaded CPU miner for Verium (scrypt^2)\n\n", VERSION);
+	printf("\nVerium Miner %s - multi-threaded CPU miner for Verium (scrypt^2)\n\n",
+		VRM_VERSION_FULL);
 }
 
 void get_defconfig_path(char *out, size_t bufsize, char *argv0);
@@ -2728,6 +2829,9 @@ int main(int argc, char *argv[]) {
 	/* parse command line */
 	parse_cmdline(argc, argv);
 
+#ifdef WIN32
+	verium_win_largepages_init();
+#endif
 	topo_init();
 	{
 		const struct topo_info *tp = topo_get();
@@ -2753,6 +2857,15 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
+	if (opt_log_file) {
+		/* File logs are plain text; disable ANSI colors everywhere so both the
+		 * console and the file stay readable for headless/service runs. Opened
+		 * before the pool check so startup errors are captured too. */
+		use_colors = false;
+		applog_open_logfile(opt_log_file);
+		applog(LOG_INFO, "Logging to file: %s", opt_log_file);
+	}
+
 	if (!opt_benchmark && !rpc_url) {
 		fprintf(stderr, "%s: no pool URL. Use -o URL, -c config.json, or --setup\n",
 			argv[0]);
@@ -2767,16 +2880,29 @@ int main(int argc, char *argv[]) {
 	if (!opt_n_threads) {
 		int rec = topo_recommended_threads(scrypt_scratchpad_bytes(opt_scrypt_n));
 		opt_n_threads = rec > 0 ? rec : num_cpus;
-		applog(LOG_NOTICE, "Auto threads: %d (topology + cache budget)", opt_n_threads);
+		applog(LOG_NOTICE, "Auto threads: %d (P-cores + RAM + bandwidth)", opt_n_threads);
 	} else {
 		int rec = topo_recommended_threads(scrypt_scratchpad_bytes(opt_scrypt_n));
 		if (rec > 0 && opt_n_threads > rec)
 			applog(LOG_WARNING,
-				"%d threads may oversubscribe cache (recommended <= %d)",
+				"%d threads may oversubscribe memory bandwidth (recommended <= %d)",
 				opt_n_threads, rec);
 	}
 	if (!opt_n_threads)
 		opt_n_threads = 1;
+
+	if (opt_algo == ALGO_SCRYPT) {
+		const struct topo_info *tp = topo_get();
+		size_t spb = scrypt_scratchpad_bytes(opt_scrypt_n);
+		double sp_mb = spb / (1024.0 * 1024.0);
+		applog(LOG_NOTICE,
+			"Scrypt scratchpad: %.0f MB per thread, ~%.0f MB for %d thread(s) (N=%d)",
+			sp_mb, sp_mb * opt_n_threads, opt_n_threads, opt_scrypt_n);
+		if (tp && tp->performance_cpus > 0)
+			applog(LOG_NOTICE,
+				"Topology: %d logical, %d packages, %d performance (P) CPUs — workers pinned to P-cores",
+				tp->logical_cpus, tp->physical_cpus, tp->performance_cpus);
+	}
 
 	if (opt_tune) {
 		const struct topo_info *tp = topo_get();
@@ -2983,10 +3109,37 @@ int main(int argc, char *argv[]) {
 	applog(LOG_INFO, "%d mining threads started · algorithm %s",
 		opt_n_threads, algo_names[opt_algo]);
 
-	/* main loop - simply wait for workio thread to exit */
+	/* main loop - wait for the work I/O thread to exit (Ctrl-C, SIGTERM, or
+	 * an unrecoverable pool failure all funnel here). */
 	pthread_join(thr_info[work_thr_id].pth, NULL);
 
-	applog(LOG_WARNING, "workio thread dead, exiting.");
+	/* Cooperative teardown: stop and reap the worker + stratum threads, then
+	 * release the resources they held (multi-GB scrypt scratchpads, the pool
+	 * socket, CURL) so the process exits cleanly instead of being torn down
+	 * mid-flight by exit(). */
+	g_shutdown = 1;
+	restart_threads();
 
-	return 0;
+	for (i = 0; i < opt_n_threads; i++)
+		pthread_join(thr_info[i].pth, NULL);
+
+	if (stratum_thr_id >= 0) {
+		stratum_disconnect(&stratum); /* unblock a blocking recv() */
+		pthread_join(thr_info[stratum_thr_id].pth, NULL);
+	}
+
+	if (!opt_quiet)
+		applog(LOG_INFO, "Mining threads stopped, releasing resources");
+
+	free(thr_hashrates);
+	free(work_restart);
+
+	/* longpoll (solo/getwork mode) may still hold a CURL handle; only run the
+	 * global CURL teardown when it was never started (the pool/stratum path). */
+	if (longpoll_thr_id < 0)
+		curl_global_cleanup();
+
+	applog(LOG_NOTICE, "Verium Miner stopped.");
+
+	return g_exit_code;
 }

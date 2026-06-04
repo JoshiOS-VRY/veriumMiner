@@ -201,7 +201,9 @@ struct work;
 
 /* Verium uses scrypt^2 ("VeriHash"). Only the scrypt scanner is built. */
 int scanhash_sha256d(int thr_id, struct work *work, uint32_t max_nonce, uint64_t *hashes_done);
+int scrypt_rom_lane_count(void);
 size_t scrypt_scratchpad_bytes(int N);
+int scrypt_large_pages_active(void);
 unsigned char *scrypt_buffer_alloc(int N);
 void scrypt_buffer_free(unsigned char *buf, int N);
 int scanhash_scrypt(int thr_id, struct work *work, uint32_t max_nonce, uint64_t *hashes_done,
@@ -413,12 +415,15 @@ struct thread_q *tq_new(void);
 void tq_free(struct thread_q *tq);
 bool tq_push(struct thread_q *tq, void *data);
 void *tq_pop(struct thread_q *tq, const struct timespec *abstime);
+size_t tq_depth(struct thread_q *tq);
 void tq_freeze(struct thread_q *tq);
 void tq_thaw(struct thread_q *tq);
 
 void parse_arg(int key, char *arg);
 void parse_config(json_t *config, char *ref);
 void proper_exit(int reason);
+void request_shutdown(int reason);
+void applog_open_logfile(const char *path);
 
 void applog_compare_hash(void *hash, void *hash_ref);
 void applog_hex(void *data, int len);
@@ -429,6 +434,7 @@ void cpuminer_config_dir(char *out, size_t bufsize);
 void cpuminer_config_json_path(char *out, size_t bufsize);
 void get_defconfig_path(char *out, size_t bufsize, char *argv0);
 void print_hash_tests(void);
+int scrypt_selftest(void);
 
 void sha256d(unsigned char *hash, const unsigned char *data, int len);
 void scrypthash(void *output, const void *input, uint32_t N);

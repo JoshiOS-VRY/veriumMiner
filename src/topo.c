@@ -146,18 +146,115 @@ static void topo_linux_probe(void)
 
 	f = fopen("/proc/meminfo", "r");
 	if (f) {
+		uint64_t avail_kb = 0;
 		while (fgets(line, sizeof(line), f)) {
 			if (!strncmp(line, "MemTotal:", 9)) {
 				uint64_t kb = 0;
 				sscanf(line + 9, "%llu", (unsigned long long *)&kb);
 				g_topo.total_ram_bytes = kb * 1024ULL;
-				break;
+			} else if (!strncmp(line, "MemAvailable:", 13)) {
+				sscanf(line + 13, "%llu", (unsigned long long *)&avail_kb);
 			}
 		}
 		fclose(f);
+		if (avail_kb)
+			g_topo.avail_ram_bytes = avail_kb * 1024ULL;
 	}
+	g_topo.performance_cpus = g_topo.physical_cpus;
 }
 #elif defined(WIN32)
+/* CpuSet API (Win10+); resolved at runtime for older SDKs. */
+typedef struct _TOPO_CPU_SET_ENTRY {
+	ULONG Size;
+	ULONG Type;
+	struct {
+		BYTE Id;
+		WORD Group;
+		BYTE LogicalProcessorIndex;
+		BYTE CoreIndex;
+		BYTE LastLevelCacheIndex;
+		WORD NumaNodeIndex;
+		BYTE EfficiencyClass;
+	} CpuSet;
+} TOPO_CPU_SET_ENTRY;
+
+typedef BOOL (WINAPI *topo_pfn_GetSystemCpuSetInformation)(
+	PVOID, ULONG, PULONG, HANDLE, ULONG);
+
+static int topo_win_cmp_cpu(const void *a, const void *b)
+{
+	return *(const int *)a - *(const int *)b;
+}
+
+static void topo_win_fill_perf_cpus(void)
+{
+	topo_pfn_GetSystemCpuSetInformation pfn;
+	ULONG len = 0;
+	PVOID buf = NULL;
+	TOPO_CPU_SET_ENTRY *e;
+	ULONG off;
+	int cpus[TOPO_MAX_CPUS];
+	int n = 0;
+	BYTE best_class = 255;
+
+	pfn = (topo_pfn_GetSystemCpuSetInformation)(void *)
+		GetProcAddress(GetModuleHandleA("kernel32"), "GetSystemCpuSetInformation");
+	if (!pfn)
+		goto hybrid_fb;
+
+	if (!pfn(NULL, 0, &len, NULL, 0) || !len)
+		goto hybrid_fb;
+	buf = malloc(len);
+	if (!buf || !pfn(buf, len, &len, NULL, 0))
+		goto hybrid_fb;
+
+	for (off = 0; off < len; ) {
+		e = (TOPO_CPU_SET_ENTRY *)((char *)buf + off);
+		if (e->Size < sizeof(ULONG) * 2)
+			break;
+		if (e->Type == 0 && e->CpuSet.EfficiencyClass < best_class)
+			best_class = e->CpuSet.EfficiencyClass;
+		off += e->Size;
+	}
+	if (best_class == 255) {
+		free(buf);
+		goto hybrid_fb;
+	}
+
+	for (off = 0; off < len; ) {
+		e = (TOPO_CPU_SET_ENTRY *)((char *)buf + off);
+		if (e->Size < sizeof(ULONG) * 2)
+			break;
+		if (e->Type == 0 && e->CpuSet.EfficiencyClass == best_class
+				&& n < TOPO_MAX_CPUS) {
+			/* Group 0: affinity mask bit == LogicalProcessorIndex. */
+			if (e->CpuSet.Group == 0)
+				cpus[n++] = (int)e->CpuSet.LogicalProcessorIndex;
+		}
+		off += e->Size;
+	}
+	free(buf);
+
+	if (n < 1)
+		goto hybrid_fb; /* hybrid_fb: no buffer held */
+
+	qsort(cpus, (size_t)n, sizeof(cpus[0]), topo_win_cmp_cpu);
+	g_topo.performance_cpus = n;
+	g_topo.worker_count = n;
+	for (int i = 0; i < n; i++)
+		g_topo.worker_cpu[i] = cpus[i];
+	return;
+
+hybrid_fb:
+	/* Alder Lake+: first N logical CPUs are usually P-cores. */
+	if (g_topo.logical_cpus == 24 && g_topo.physical_cpus == 16) {
+		g_topo.performance_cpus = 16;
+		g_topo.worker_count = 16;
+		for (int i = 0; i < 16; i++)
+			g_topo.worker_cpu[i] = i;
+	}
+}
+
 static void topo_win_probe(void)
 {
 	DWORD len = 0;
@@ -198,6 +295,16 @@ static void topo_win_probe(void)
 	g_topo.worker_count = g_topo.physical_cpus;
 	for (int i = 0; i < g_topo.worker_count && i < TOPO_MAX_CPUS; i++)
 		g_topo.worker_cpu[i] = i;
+
+	{
+		MEMORYSTATUSEX ms;
+		ms.dwLength = sizeof(ms);
+		if (GlobalMemoryStatusEx(&ms)) {
+			g_topo.total_ram_bytes = ms.ullTotalPhys;
+			g_topo.avail_ram_bytes = ms.ullAvailPhys;
+		}
+	}
+	topo_win_fill_perf_cpus();
 	return;
 
 fallback:
@@ -210,6 +317,15 @@ fallback:
 			g_topo.worker_cpu[i] = i;
 		g_topo.worker_count = g_topo.logical_cpus;
 	}
+	{
+		MEMORYSTATUSEX ms;
+		ms.dwLength = sizeof(ms);
+		if (GlobalMemoryStatusEx(&ms)) {
+			g_topo.total_ram_bytes = ms.ullTotalPhys;
+			g_topo.avail_ram_bytes = ms.ullAvailPhys;
+		}
+	}
+	topo_win_fill_perf_cpus();
 }
 #else
 static void topo_generic_probe(void)
@@ -255,26 +371,61 @@ const struct topo_info *topo_get(void)
 int topo_recommended_threads(size_t scratchpad_bytes)
 {
 	int phys = g_topo.physical_cpus > 0 ? g_topo.physical_cpus : 1;
+	int perf = g_topo.performance_cpus > 0 ? g_topo.performance_cpus : phys;
+	int perf_phys = perf;
 	int by_l3 = phys;
 	int by_ram = phys;
+	int by_bw = phys;
+	uint64_t ram_for_miner;
+	const uint64_t os_reserve = 4ULL * 1024ULL * 1024ULL * 1024ULL;
+
+	/* Hybrid Intel: performance_cpus counts P-logical CPUs; use P-core count. */
+	if (g_topo.performance_cpus > 0 && g_topo.logical_cpus > g_topo.physical_cpus)
+		perf_phys = g_topo.performance_cpus / 2;
+	else if (perf > phys && phys > 0)
+		perf_phys = phys;
+	else if (perf > 1 && perf == phys * 2)
+		perf_phys = phys;
 
 	if (scratchpad_bytes > 0 && g_topo.l3_bytes > 0) {
 		by_l3 = (int)(g_topo.l3_bytes / scratchpad_bytes);
 		if (by_l3 < 1)
 			by_l3 = 1;
 	}
-	if (scratchpad_bytes > 0 && g_topo.total_ram_bytes > 0) {
-		by_ram = (int)((g_topo.total_ram_bytes / 4) / scratchpad_bytes);
+
+	ram_for_miner = g_topo.avail_ram_bytes;
+	if (ram_for_miner < os_reserve && g_topo.total_ram_bytes > os_reserve)
+		ram_for_miner = g_topo.total_ram_bytes - os_reserve;
+	else if (ram_for_miner > os_reserve)
+		ram_for_miner -= os_reserve;
+	else if (g_topo.total_ram_bytes > os_reserve)
+		ram_for_miner = g_topo.total_ram_bytes - os_reserve;
+	else
+		ram_for_miner = 0;
+
+	if (scratchpad_bytes > 0 && ram_for_miner > 0) {
+		by_ram = (int)(ram_for_miner / scratchpad_bytes);
 		if (by_ram < 1)
 			by_ram = 1;
 	}
-	if (by_l3 > phys)
-		by_l3 = phys;
-	if (by_ram > phys)
-		by_ram = phys;
-	if (by_l3 < by_ram)
-		return by_l3;
-	return by_ram;
+
+	/* Scrypt is memory-bandwidth bound; cap heuristically on desktop CPUs. */
+	by_bw = perf_phys;
+	if (by_bw > 12)
+		by_bw = 12;
+
+	{
+		int rec = by_bw;
+		if (by_l3 < rec)
+			rec = by_l3;
+		if (by_ram < rec)
+			rec = by_ram;
+		if (perf_phys < rec)
+			rec = perf_phys;
+		if (rec < 1)
+			rec = 1;
+		return rec;
+	}
 }
 
 #if defined(__linux__)

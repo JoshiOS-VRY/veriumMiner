@@ -18,6 +18,8 @@ option(USE_ASM        "Use hand-written assembly cores where available" ON)
 option(MARCH_NATIVE   "Build with -march=native (single-machine builds)" OFF)
 option(ENABLE_LTO     "Enable link-time optimization for Release builds"  ON)
 option(BUILD_TESTS    "Build the hash regression tests"                   ON)
+option(STATIC_BUILD   "Statically link runtime/dependencies for distribution" OFF)
+option(WERROR         "Treat compiler warnings as errors (CI gate)"            OFF)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type" FORCE)
@@ -150,6 +152,30 @@ configure_file(
     @ONLY)
 
 # ---------------------------------------------------------------------------
+# Version string: single-sourced from project() and refined with `git describe`
+# so release binaries report the exact commit/tag they were built from.
+# ---------------------------------------------------------------------------
+find_package(Git QUIET)
+set(VRM_GIT_REV "")
+if(Git_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" describe --tags --dirty --always
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        OUTPUT_VARIABLE VRM_GIT_REV
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+endif()
+if(NOT VRM_GIT_REV)
+    set(VRM_GIT_REV "v${PROJECT_VERSION}")
+endif()
+message(STATUS "veriumMiner: version ${PROJECT_VERSION} (${VRM_GIT_REV})")
+
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/version.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/version.h"
+    @ONLY)
+
+# ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
 find_package(CURL REQUIRED)
@@ -194,7 +220,7 @@ if(NOT HAVE_GETOPT_LONG)
 endif()
 
 if(WIN32)
-    list(APPEND VRM_SOURCES compat/winansi.c)
+    list(APPEND VRM_SOURCES compat/winansi.c compat/win_largepages.c)
 endif()
 
 add_executable(cpuminer ${VRM_SOURCES})
@@ -207,13 +233,41 @@ if(NOT HAVE_GETOPT_LONG)
     target_include_directories(cpuminer PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/compat/getopt")
 endif()
 
-target_link_libraries(cpuminer PRIVATE
-    CURL::libcurl
-    Jansson::Jansson
-    Threads::Threads)
+# For a static Windows distribution we link curl and its transitive
+# dependencies from their .a archives (via pkg-config) instead of the shared
+# import library, so the resulting cpuminer.exe has no MinGW DLL dependencies.
+# The default (dynamic) build is unchanged.
+if(STATIC_BUILD AND WIN32 AND NOT MSVC)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(PC_CURL REQUIRED libcurl)
+    target_include_directories(cpuminer PRIVATE ${PC_CURL_STATIC_INCLUDE_DIRS})
+    target_link_directories(cpuminer PRIVATE ${PC_CURL_STATIC_LIBRARY_DIRS})
+    target_link_libraries(cpuminer PRIVATE
+        ${PC_CURL_STATIC_LIBRARIES}
+        jansson
+        Threads::Threads)
+else()
+    target_link_libraries(cpuminer PRIVATE
+        CURL::libcurl
+        Jansson::Jansson
+        Threads::Threads)
+endif()
 
 if(WIN32)
     target_link_libraries(cpuminer PRIVATE ws2_32 crypt32 gdi32 winmm)
+
+    # Embed version info, icon, and application manifest so Windows and AV
+    # scanners see a labeled Verium miner (not a nameless cpuminer-multi blob).
+    set(VRM_FILE_VERSION_COMMA
+        "${PROJECT_VERSION_MAJOR},${PROJECT_VERSION_MINOR},${PROJECT_VERSION_PATCH}")
+    set(VRM_VERSION_STRING "${PROJECT_VERSION}")
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/res/cpuminer.rc.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/cpuminer.rc"
+        @ONLY)
+    target_sources(cpuminer PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/cpuminer.rc")
+    set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/cpuminer.rc"
+        PROPERTIES COMPILE_FLAGS "-I \"${CMAKE_CURRENT_SOURCE_DIR}/res\"")
 endif()
 
 # ---------------------------------------------------------------------------
@@ -224,7 +278,7 @@ if(MSVC)
 else()
     target_compile_options(cpuminer PRIVATE
         -fno-strict-aliasing
-        -Wno-pointer-sign
+        $<$<COMPILE_LANGUAGE:C>:-Wno-pointer-sign>
         $<$<COMPILE_LANGUAGE:C>:-Wall>)
     if(MARCH_NATIVE)
         target_compile_options(cpuminer PRIVATE -march=native)
@@ -232,6 +286,38 @@ else()
     if(WIN32)
         # larger stack for the scrypt scratchpad handling
         target_link_options(cpuminer PRIVATE -Wl,--stack,10485760)
+    endif()
+
+    # Strip symbols from Release builds for smaller distributables (keep on
+    # Linux/Windows; Apple's ld handles stripping differently and warns on -s).
+    if(NOT APPLE)
+        target_link_options(cpuminer PRIVATE $<$<CONFIG:Release>:-s>)
+    endif()
+
+    if(WERROR)
+        target_compile_options(cpuminer PRIVATE -Werror)
+    endif()
+
+    # The vendored SHA1 multi-block loop trips a known GCC -Wstringop-overread
+    # false positive that only surfaces when LTO inlines it into api.c. Build
+    # this one file without LTO and silence the check there; -Werror stays in
+    # force for the rest of the tree.
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        set_source_files_properties(src/sha1.c PROPERTIES
+            COMPILE_OPTIONS "-fno-lto;-Wno-stringop-overread")
+    endif()
+
+    # Static distribution build: avoid runtime DLL/.so dependencies so the
+    # released binary runs on a clean machine without extra packages.
+    if(STATIC_BUILD)
+        target_compile_definitions(cpuminer PRIVATE CURL_STATICLIB)
+        if(WIN32)
+            target_link_options(cpuminer PRIVATE
+                -static -static-libgcc -static-libstdc++)
+        else()
+            target_link_options(cpuminer PRIVATE
+                -static-libgcc -static-libstdc++)
+        endif()
     endif()
 endif()
 

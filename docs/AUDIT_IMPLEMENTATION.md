@@ -1,6 +1,8 @@
 # Audit implementation status
 
-This document maps the [Verium Miner Audit Canvas](../.cursor/...) findings to code changes.
+This document maps the Verium Miner audit findings to the code changes that
+implement them. (The original audit canvas lived outside the repository; this
+file is the in-tree record of what was addressed.)
 
 ## Completed
 
