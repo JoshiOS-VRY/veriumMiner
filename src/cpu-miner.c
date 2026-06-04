@@ -2863,7 +2863,7 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	if (opt_log_file) {
+	if (opt_log_file && opt_log_file[0]) {
 		/* File logs are plain text; disable ANSI colors everywhere so both the
 		 * console and the file stay readable for headless/service runs. Opened
 		 * before the pool check so startup errors are captured too. */
@@ -2875,6 +2875,16 @@ int main(int argc, char *argv[]) {
 	if (!opt_benchmark && !rpc_url) {
 		fprintf(stderr, "%s: no pool URL. Use -o URL, -c config.json, or --setup\n",
 			argv[0]);
+		show_usage_and_exit(1);
+	}
+
+	if (!opt_benchmark && rpc_user && strstr(rpc_user, "YOUR_VERIUM_ADDRESS")) {
+		fprintf(stderr,
+			"%s: configuration still has the example wallet placeholder.\n"
+			"  Run:  %s --setup\n"
+			"  Or edit %%APPDATA%%\\cpuminer\\cpuminer-conf.json (Windows) "
+			"and set a real Verium address (V...).\n",
+			argv[0], argv[0]);
 		show_usage_and_exit(1);
 	}
 

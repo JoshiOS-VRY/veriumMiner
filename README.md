@@ -52,12 +52,18 @@ download against `SHA256SUMS` before running.
      (`veriumminer-setup.exe`).
    * `veriumminer-<ver>-linux-x86_64.tar.gz` / `...-linux-arm64.tar.gz`
    * `veriumminer-<ver>-macos-arm64.tar.gz` / `...-macos-x86_64.tar.gz`
-2. Extract it, then either run the setup wizard or pass flags directly.
+2. Extract it, open the folder, and read **`START.txt`**.
+
+3. **First run must be the setup wizard** (creates `%APPDATA%\cpuminer\cpuminer-conf.json`):
 
 ```sh
 # Windows (PowerShell): unzip, then
 .\cpuminer.exe --setup
 .\cpuminer.exe
+```
+
+Do **not** skip `--setup` on first install — double-clicking `cpuminer.exe` alone will
+only work after you have a real config (not the example placeholder).
 
 # Linux / macOS
 tar xzf veriumminer-*.tar.gz && cd veriumminer-*

@@ -32,7 +32,26 @@ mkdir -p "$STAGE/contrib"
 cp "$BINARY" "$STAGE/"
 cp README.md "$STAGE/" 2>/dev/null || true
 cp COPYING "$STAGE/LICENSE.txt" 2>/dev/null || cp LICENSE "$STAGE/LICENSE.txt" 2>/dev/null || true
-cp cpuminer-conf.json "$STAGE/" 2>/dev/null || true
+# Example config only — must not be named cpuminer-conf.json or the miner will
+# auto-load placeholders and skip the first-run wizard.
+if [ -f cpuminer-conf.json ]; then
+  cp cpuminer-conf.json "$STAGE/cpuminer-conf.example.json"
+fi
+cat > "$STAGE/START.txt" <<'EOF'
+Verium Miner — first run
+========================
+
+1. Open PowerShell or cmd in this folder.
+2. Run the setup wizard (creates your wallet/pool config):
+
+   cpuminer.exe --setup
+
+3. Start mining:
+
+   cpuminer.exe
+
+Optional: copy cpuminer-conf.example.json and edit by hand instead of --setup.
+EOF
 
 # Headless / service helpers and docs.
 for d in systemd launchd windows; do
