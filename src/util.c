@@ -134,7 +134,7 @@ void applog(int prio, const char *fmt, ...)
 		const char *tag = logfmt_tag(prio);
 		char *f;
 		int len;
-		struct tm tm;
+		struct tm tm = {0};
 		time_t now = time(NULL);
 
 		localtime_r(&now, &tm);
