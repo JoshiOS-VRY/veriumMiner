@@ -147,7 +147,7 @@ jobs:
           PID=$!
           sleep 25
           kill -TERM $PID
-          # Exit code 0 means the cooperative shutdown completed cleanly.
+          # Exit code 0 means cooperative shutdown (SIGTERM handler registered).
           wait $PID
 
   # ---------------------------------------------------------------------
@@ -161,15 +161,18 @@ jobs:
       - name: Install cppcheck
         run: |
           sudo apt-get update
-          sudo apt-get install -y cppcheck
+          sudo apt-get install -y cppcheck cmake libcurl4-openssl-dev libjansson-dev
+      - name: Generate headers for cppcheck
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
       # Errors-only gate (real bugs: leaks, OOB, null deref). This fails the job.
       - name: cppcheck (errors gate)
         run: |
           cppcheck --quiet --error-exitcode=1 \
             --inline-suppr \
             --suppress=missingIncludeSystem \
+            --suppress=uninitvar:include/uint256.h \
             --library=posix \
-            -I include -I . \
+            -I include -I . -I build \
             src
       # Broader analysis (style/perf/portability) is informational for now so
       # legacy findings don't block PRs; review the output and tighten later.

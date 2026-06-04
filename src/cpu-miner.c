@@ -2201,14 +2201,14 @@ out:
 static void show_version_and_exit(void)
 {
 	printf("Verium Miner %s\n", VRM_VERSION_FULL);
-	printf(" built "
 #ifdef _MSC_VER
-	 "with VC++ %d", msver());
+	printf(" built with VC++ %d the %s\n", msver(), __DATE__);
 #elif defined(__GNUC__)
-	 "with GCC ");
-	printf("%d.%d.%d", __GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__);
+	printf(" built with GCC %d.%d.%d the %s\n",
+		__GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__, __DATE__);
+#else
+	printf(" built the %s\n", __DATE__);
 #endif
-	printf(" the " __DATE__ "\n");
 
 	// Note: if compiled with cpu opts (instruction sets),
 	// the binary is no more compatible with older ones!
@@ -2937,6 +2937,10 @@ int main(int argc, char *argv[]) {
 	}
 
 #ifndef WIN32
+	/* SIGTERM/SIGHUP must be caught in foreground too (systemd, CI, docker stop). */
+	signal(SIGHUP, signal_handler);
+	signal(SIGTERM, signal_handler);
+	signal(SIGINT, signal_handler);
 	if (opt_background) {
 		i = fork();
 		if (i < 0) exit(1);
@@ -2947,11 +2951,7 @@ int main(int argc, char *argv[]) {
 		i = chdir("/");
 		if (i < 0)
 			applog(LOG_ERR, "chdir() failed (errno = %d)", errno);
-		signal(SIGHUP, signal_handler);
-		signal(SIGTERM, signal_handler);
 	}
-	/* Always catch Ctrl+C */
-	signal(SIGINT, signal_handler);
 #else
 	SetConsoleCtrlHandler((PHANDLER_ROUTINE)ConsoleHandler, TRUE);
 	if (opt_background) {

@@ -69,6 +69,8 @@ static void topo_linux_probe(void)
 	struct { int p, c, cpu; } cores[512];
 	int ncores = 0;
 
+	memset(cores, 0xff, sizeof(cores));
+
 	g_topo.logical_cpus = (int)sysconf(_SC_NPROCESSORS_ONLN);
 	if (g_topo.logical_cpus < 1)
 		g_topo.logical_cpus = 1;

@@ -611,6 +611,7 @@ static void api()
 	*apisock = socket(AF_INET, SOCK_STREAM, 0);
 	if (*apisock == INVSOCK) {
 		applog(LOG_ERR, "API initialisation failed (%s)%s", strerror(errno), UNAVAILABLE);
+		free(apisock);
 		return;
 	}
 
@@ -619,6 +620,8 @@ static void api()
 	serv.sin_addr.s_addr = inet_addr(addr);
 	if (serv.sin_addr.s_addr == (in_addr_t)INVINETADDR) {
 		applog(LOG_ERR, "API initialisation 2 failed (%s)%s", strerror(errno), UNAVAILABLE);
+		CLOSESOCKET(*apisock);
+		free(apisock);
 		return;
 	}
 
