@@ -37,7 +37,29 @@ cp COPYING "$STAGE/LICENSE.txt" 2>/dev/null || cp LICENSE "$STAGE/LICENSE.txt" 2
 if [ -f cpuminer-conf.json ]; then
   cp cpuminer-conf.json "$STAGE/cpuminer-conf.example.json"
 fi
-cat > "$STAGE/START.txt" <<'EOF'
+if [[ "$PLATFORM" == macos* ]]; then
+  APP="$STAGE/Verium Miner.app"
+  mkdir -p "$APP/Contents/MacOS"
+  cp "$BINARY" "$APP/Contents/MacOS/cpuminer"
+  chmod +x "$APP/Contents/MacOS/cpuminer"
+  sed "s/@VERSION@/${VERSION}/g" contrib/macos/Info.plist > "$APP/Contents/Info.plist"
+  cat > "$STAGE/START.txt" <<'EOF'
+Verium Miner — macOS quick start
+================================
+
+Double-click **Verium Miner.app** in this folder.
+
+  • First run: a setup wizard asks for your wallet and pool, then mining starts.
+  • Later runs: mining starts automatically (config is saved).
+
+Your settings are stored in:
+  ~/.cpuminer/cpuminer-conf.json
+
+Advanced: run ./cpuminer from Terminal, or ./cpuminer --setup to change settings.
+Optional: edit cpuminer-conf.example.json by hand instead of the wizard.
+EOF
+else
+  cat > "$STAGE/START.txt" <<'EOF'
 Verium Miner — first run
 ========================
 
@@ -52,6 +74,7 @@ Verium Miner — first run
 
 Optional: copy cpuminer-conf.example.json and edit by hand instead of --setup.
 EOF
+fi
 
 # Headless / service helpers and docs.
 for d in systemd launchd windows; do

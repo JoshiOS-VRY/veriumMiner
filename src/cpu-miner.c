@@ -2799,6 +2799,32 @@ static void show_credits(void)
 
 void get_defconfig_path(char *out, size_t bufsize, char *argv0);
 
+static bool stdin_is_interactive(void)
+{
+#ifdef WIN32
+	return _isatty(_fileno(stdin)) != 0;
+#else
+	return isatty(STDIN_FILENO) != 0;
+#endif
+}
+
+static bool config_has_placeholder_user(void)
+{
+	return rpc_user && strstr(rpc_user, "YOUR_VERIUM_ADDRESS");
+}
+
+static void try_load_defconfig(char *defconfig, size_t defconfigsz, char *argv0,
+                                int argc, char **argv)
+{
+	get_defconfig_path(defconfig, defconfigsz, argv0);
+	if (!defconfig[0])
+		return;
+	if (opt_debug)
+		applog(LOG_DEBUG, "Using config %s", defconfig);
+	parse_arg('c', defconfig);
+	parse_cmdline(argc, argv);
+}
+
 int main(int argc, char *argv[]) {
 	struct thr_info *thr;
 	long flags;
@@ -2844,20 +2870,25 @@ int main(int argc, char *argv[]) {
 	stats_init();
 	stats_set_status_interval(opt_status_interval);
 
-	if (!opt_benchmark && !rpc_url) {
+	if (!opt_benchmark) {
 		char defconfig[MAX_PATH] = { 0 };
-		if (opt_setup) {
+		const bool interactive = stdin_is_interactive() && !opt_background;
+		bool need_setup;
+
+		if (!opt_setup)
+			try_load_defconfig(defconfig, sizeof(defconfig), argv[0], argc, argv);
+
+		need_setup = !rpc_url || config_has_placeholder_user();
+
+		if (opt_setup || (need_setup && interactive)) {
+			if (opt_setup && !interactive) {
+				fprintf(stderr,
+					"%s: --setup requires an interactive terminal.\n",
+					argv[0]);
+				show_usage_and_exit(1);
+			}
 			if (!onboard_interactive(defconfig, sizeof(defconfig)))
 				show_usage_and_exit(1);
-			/* Wizard only: do not start mining in the same process unless -o was given. */
-			if (!opt_url_from_cli)
-				return 0;
-			parse_arg('c', defconfig);
-		}
-		get_defconfig_path(defconfig, MAX_PATH, argv[0]);
-		if (strlen(defconfig)) {
-			if (opt_debug)
-				applog(LOG_DEBUG, "Using config %s", defconfig);
 			parse_arg('c', defconfig);
 			parse_cmdline(argc, argv);
 		}
@@ -2873,17 +2904,19 @@ int main(int argc, char *argv[]) {
 	}
 
 	if (!opt_benchmark && !rpc_url) {
-		fprintf(stderr, "%s: no pool URL. Use -o URL, -c config.json, or --setup\n",
+		fprintf(stderr,
+			"%s: no pool URL. Use -o URL, -c config.json, or --setup\n"
+			"  (First run: open from Terminal, or double-click \"Verium Miner.app\" on macOS.)\n",
 			argv[0]);
 		show_usage_and_exit(1);
 	}
 
-	if (!opt_benchmark && rpc_user && strstr(rpc_user, "YOUR_VERIUM_ADDRESS")) {
+	if (!opt_benchmark && config_has_placeholder_user()) {
 		fprintf(stderr,
 			"%s: configuration still has the example wallet placeholder.\n"
 			"  Run:  %s --setup\n"
-			"  Or edit %%APPDATA%%\\cpuminer\\cpuminer-conf.json (Windows) "
-			"and set a real Verium address (V...).\n",
+			"  Or edit the config (Windows: %%APPDATA%%\\cpuminer\\cpuminer-conf.json; "
+			"macOS/Linux: ~/.cpuminer/cpuminer-conf.json) and set a real Verium address (V...).\n",
 			argv[0], argv[0]);
 		show_usage_and_exit(1);
 	}

@@ -169,8 +169,6 @@ bool onboard_interactive(char *out_config_path, size_t pathsz)
 
 	snprintf(out_config_path, pathsz, "%s", path);
 	printf("\nConfiguration saved to %s\n", path);
-	printf("Start mining: run cpuminer with no arguments (reads that config).\n");
-	printf("  Windows:  cpuminer.exe\n");
-	printf("  Linux:    ./cpuminer\n\n");
+	printf("Starting mining now...\n\n");
 	return true;
 }

@@ -62,12 +62,16 @@ download against `SHA256SUMS` before running.
 .\cpuminer.exe
 ```
 
-Do **not** skip `--setup` on first install — double-clicking `cpuminer.exe` alone will
-only work after you have a real config (not the example placeholder).
+On **Windows**, run `--setup` once before relying on double-click — `cpuminer.exe` alone
+only works after you have a real config (not the example placeholder).
 
-# Linux / macOS
+On **macOS**, double-click **`Verium Miner.app`** in the extracted folder (or run
+`./cpuminer` in Terminal). The first interactive run launches the setup wizard and
+then starts mining; later runs use the saved config in `~/.cpuminer/cpuminer-conf.json`.
+
+# Linux
 tar xzf veriumminer-*.tar.gz && cd veriumminer-*
-./cpuminer --setup
+./cpuminer --setup   # optional; first interactive run also runs the wizard
 ./cpuminer
 ```
 

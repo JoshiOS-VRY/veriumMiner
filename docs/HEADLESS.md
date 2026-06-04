@@ -12,7 +12,10 @@ is a single self-contained `cpuminer.exe`.
 
 ## 2. Create a config
 
-Run the wizard once (interactive), or copy and edit the example config:
+Run the wizard once (interactive), or copy and edit the example config. On a
+desktop Mac, double-clicking **Verium Miner.app** runs the wizard on first
+launch and then starts mining; on servers without a TTY, use `--setup` or a
+hand-written config file.
 
 ```sh
 # From the release folder (or /usr/local/bin after cmake --install)
