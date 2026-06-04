@@ -43,6 +43,8 @@
 
 #ifndef WIN32
 #include <sys/resource.h>
+#include <sys/stat.h>
+#include <libgen.h>
 #endif
 
 #include "miner.h"
@@ -121,6 +123,8 @@ static bool opt_tune = false;
 static int opt_status_interval = 30;
 static bool opt_setup = false;
 static bool opt_url_from_cli = false;
+static bool opt_config_explicit = false;
+static char g_loaded_config_path[MAX_PATH] = { 0 };
 static char *opt_log_file = NULL;
 static int opt_profile = 0; /* 0=background, 1=dedicated */
 static volatile int g_shutdown = 0;
@@ -261,7 +265,8 @@ Options:\n\
       --status-interval=N  Seconds between status summaries (default: 30)\n\
       --profile=MODE    background (default) or dedicated (higher CPU priority)\n\
       --tune            Print cache-aware thread recommendation at startup\n\
-      --setup           Interactive first-run configuration wizard\n\
+      --setup           Interactive configuration wizard (first run or changes)\n\
+      --reconfigure     Same as --setup\n\
       --log-file=FILE   Also append plain-text logs to FILE (headless/service)\n\
   -D, --debug           Debug logging\n\
   -P, --protocol-dump   Verbose Stratum protocol log\n\
@@ -302,6 +307,7 @@ static struct option const options[] = {
 	{ "status-interval", 1, NULL, 1072 },
 	{ "profile", 1, NULL, 1073 },
 	{ "setup", 0, NULL, 1074 },
+	{ "reconfigure", 0, NULL, 1074 },
 	{ "log-file", 1, NULL, 1076 },
 	{ "dump-share-header", 0, NULL, 1075 },
 	{ "api-remote", 0, NULL, 1030 },
@@ -2371,6 +2377,10 @@ void parse_arg(int key, char *arg)
 	case 'c': {
 		json_error_t err;
 		json_t *config;
+		opt_config_explicit = true;
+		if (arg && arg[0])
+			snprintf(g_loaded_config_path, sizeof(g_loaded_config_path),
+			         "%s", arg);
 		if (arg && strstr(arg, "://")) {
 			config = json_load_url(arg, &err);
 		} else {
@@ -2813,16 +2823,45 @@ static bool config_has_placeholder_user(void)
 	return rpc_user && strstr(rpc_user, "YOUR_VERIUM_ADDRESS");
 }
 
-static void try_load_defconfig(char *defconfig, size_t defconfigsz, char *argv0,
-                                int argc, char **argv)
+static void warn_ignored_config(const char *prog, const char *active,
+                                const char *ignored)
 {
+	struct stat st;
+
+	if (!ignored || !ignored[0] || !active || !strcmp(active, ignored))
+		return;
+	if (stat(ignored, &st) != 0)
+		return;
+	fprintf(stderr,
+		"%s: note: also found %s — that file is ignored.\n"
+		"  Active config: %s (edit this file, or use -c to point elsewhere)\n",
+		prog ? prog : "cpuminer", ignored, active);
+}
+
+static void try_load_defconfig(char *defconfig, size_t defconfigsz, char *argv0)
+{
+	char home_cfg[MAX_PATH] = { 0 };
+	char exe_cfg[MAX_PATH] = { 0 };
+
 	get_defconfig_path(defconfig, defconfigsz, argv0);
 	if (!defconfig[0])
 		return;
+
+	cpuminer_config_json_path(home_cfg, sizeof(home_cfg));
+	{
+		char *cmd = strdup(argv0);
+		char *dir = cmd ? dirname(cmd) : NULL;
+		const char *sep = (dir && strstr(dir, "\\")) ? "\\" : "/";
+		if (dir)
+			snprintf(exe_cfg, sizeof(exe_cfg), "%s%scpuminer-conf.json", dir, sep);
+		free(cmd);
+	}
+	warn_ignored_config(argv0, defconfig,
+		!strcmp(defconfig, home_cfg) ? exe_cfg : home_cfg);
+
 	if (opt_debug)
 		applog(LOG_DEBUG, "Using config %s", defconfig);
 	parse_arg('c', defconfig);
-	parse_cmdline(argc, argv);
 }
 
 int main(int argc, char *argv[]) {
@@ -2875,8 +2914,8 @@ int main(int argc, char *argv[]) {
 		const bool interactive = stdin_is_interactive() && !opt_background;
 		bool need_setup;
 
-		if (!opt_setup)
-			try_load_defconfig(defconfig, sizeof(defconfig), argv[0], argc, argv);
+		if (!opt_config_explicit && !opt_setup)
+			try_load_defconfig(defconfig, sizeof(defconfig), argv[0]);
 
 		need_setup = !rpc_url || config_has_placeholder_user();
 
@@ -2890,8 +2929,14 @@ int main(int argc, char *argv[]) {
 			if (!onboard_interactive(defconfig, sizeof(defconfig)))
 				show_usage_and_exit(1);
 			parse_arg('c', defconfig);
-			parse_cmdline(argc, argv);
 		}
+
+		/* CLI flags (-t, -o, -c, …) override values from the config file. */
+		optind = 1;
+#ifdef HAVE_OPTRESET
+		optreset = 1;
+#endif
+		parse_cmdline(argc, argv);
 	}
 
 	if (opt_log_file && opt_log_file[0]) {
@@ -2926,13 +2971,19 @@ int main(int argc, char *argv[]) {
 	if (rpc_url)
 		pools_set_primary(rpc_url);
 
+	if (!opt_benchmark && rpc_url && g_loaded_config_path[0])
+		applog(LOG_NOTICE,
+			"Config: %s — change threads: edit \"threads\" in this file or run %s --setup",
+			g_loaded_config_path, argv[0]);
+
 	if (!opt_n_threads) {
 		int rec = topo_recommended_threads(scrypt_scratchpad_bytes(opt_scrypt_n));
 		opt_n_threads = rec > 0 ? rec : num_cpus;
 		applog(LOG_NOTICE,
-			"Auto threads: %d (from topology: min of P-cores, L3, free RAM, bandwidth — not all logical CPUs)",
+			"Auto threads: %d (config \"threads\": 0 — min of P-cores, L3, free RAM, bandwidth)",
 			opt_n_threads);
 	} else {
+		applog(LOG_NOTICE, "Mining threads: %d (from config or -t)", opt_n_threads);
 		int rec = topo_recommended_threads(scrypt_scratchpad_bytes(opt_scrypt_n));
 		if (rec > 0 && opt_n_threads > rec)
 			applog(LOG_WARNING,

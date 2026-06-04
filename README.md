@@ -65,9 +65,11 @@ download against `SHA256SUMS` before running.
 On **Windows**, run `--setup` once before relying on double-click — `cpuminer.exe` alone
 only works after you have a real config (not the example placeholder).
 
-On **macOS**, double-click **`Verium Miner.app`** in the extracted folder (or run
-`./cpuminer` in Terminal). The first interactive run launches the setup wizard and
-then starts mining; later runs use the saved config in `~/.cpuminer/cpuminer-conf.json`.
+On **macOS**, double-click **`Verium Miner.command`** in the extracted folder (it
+clears Gatekeeper quarantine and starts the miner). The first interactive run
+launches the setup wizard and then starts mining; later runs use the saved config
+in `~/.cpuminer/cpuminer-conf.json`. To change settings later, use **`Change
+Settings.command`** or `./cpuminer --setup`.
 
 # Linux
 tar xzf veriumminer-*.tar.gz && cd veriumminer-*
@@ -536,6 +538,8 @@ Troubleshooting
 | **Low/zero hashrate on a shared machine** | Use the default `background` profile; reserve a core for the OS by lowering `-t`. For mining-only rigs use `--profile dedicated`. |
 | **Large pages not used (slower hashrate)** | On Linux, grant locked-memory limits (the systemd unit sets `LimitMEMLOCK=infinity`) and enable hugepages. On Windows, run elevated once so the "Lock pages in memory" privilege can be acquired. |
 | **All shares rejected** | Check the wallet address (`user`) and that the pool URL/port are correct; watch for "High reject rate" warnings in the log. |
+| **macOS: “Verium Miner is damaged”** | Not corrupted — macOS blocked an unsigned download. Use **`Verium Miner.command`**, or run `xattr -dr com.apple.quarantine /path/to/extracted/folder`, then right-click the app → **Open** once. |
+| **Change thread count after setup** | Double-click **`Change Settings.command`** (macOS), run `./cpuminer --setup`, edit `"threads"` in `~/.cpuminer/cpuminer-conf.json` (`0` = auto), or pass `-t N` for a one-off override. |
 
 For headless setup details and more, see [`docs/HEADLESS.md`](docs/HEADLESS.md).
 

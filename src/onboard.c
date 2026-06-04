@@ -81,14 +81,46 @@ static bool prompt(const char *label, const char *deflt, char *out, size_t outsz
 
 bool onboard_interactive(char *out_config_path, size_t pathsz)
 {
-	char url[512], user[160], pass[128], backup[512], threads[16], path[512];
+	char url[512] = { 0 }, user[160] = { 0 }, pass[128] = { 0 };
+	char backup[512] = { 0 }, threads[16] = "0", path[512];
 	char url_e[1024], user_e[512], pass_e[512], backup_e[1024];
 	const struct topo_info *tp;
 	int rec_threads = 0;
 	FILE *f;
+	json_error_t err;
+	json_t *existing;
+
+	snprintf(url, sizeof(url), "%s", ONBOARD_DEFAULT_POOL);
+	snprintf(pass, sizeof(pass), "%s", "x");
+
+	cpuminer_config_json_path(path, sizeof(path));
+	existing = JSON_LOADF(path, &err);
+	if (json_is_object(existing)) {
+		json_t *val;
+		val = json_object_get(existing, "url");
+		if (json_is_string(val) && json_string_value(val)[0])
+			snprintf(url, sizeof(url), "%s", json_string_value(val));
+		val = json_object_get(existing, "user");
+		if (json_is_string(val) && json_string_value(val)[0])
+			snprintf(user, sizeof(user), "%s", json_string_value(val));
+		val = json_object_get(existing, "pass");
+		if (json_is_string(val) && json_string_value(val)[0])
+			snprintf(pass, sizeof(pass), "%s", json_string_value(val));
+		val = json_object_get(existing, "backup-url");
+		if (json_is_string(val))
+			snprintf(backup, sizeof(backup), "%s", json_string_value(val));
+		val = json_object_get(existing, "threads");
+		if (json_is_integer(val))
+			snprintf(threads, sizeof(threads), "%d",
+			         (int)json_integer_value(val));
+	}
+	if (existing)
+		json_decref(existing);
 
 	printf("\n=== Verium Miner Setup ===\n");
-	printf("Press Enter to accept the [default] shown for each question.\n\n");
+	printf("Press Enter to accept the [default] shown for each question.\n");
+	printf("Re-run this wizard anytime to change wallet, pool, or threads ");
+	printf("(--setup, or \"Change Settings\" on macOS).\n\n");
 
 	tp = topo_get();
 	/* Same formula as runtime when threads=0 (RAM + L3 + bandwidth, not core count). */
@@ -105,8 +137,7 @@ bool onboard_interactive(char *out_config_path, size_t pathsz)
 		printf("  auto may be below core count due to RAM, L3 cache, or memory bandwidth).\n\n");
 	}
 
-	if (!prompt("Pool URL (stratum+tcp://host:port)", ONBOARD_DEFAULT_POOL,
-	            url, sizeof(url)))
+	if (!prompt("Pool URL (stratum+tcp://host:port)", url, url, sizeof(url)))
 		return false;
 	if (strncmp(url, "stratum+tcp://", 14) != 0 &&
 	    strncmp(url, "stratum+ssl://", 14) != 0)
@@ -118,14 +149,14 @@ bool onboard_interactive(char *out_config_path, size_t pathsz)
 	if (user[0] && user[0] != 'V')
 		printf("  Note: Verium addresses normally start with an uppercase 'V'.\n");
 
-	if (!prompt("Password (usually 'x')", "x", pass, sizeof(pass)))
+	if (!prompt("Password (usually 'x')", pass, pass, sizeof(pass)))
 		return false;
 
 	if (!prompt("Backup pool URL (optional, Enter to skip)", "",
 	            backup, sizeof(backup)))
 		return false;
 
-	if (!prompt("Mining threads (0 = auto)", "0", threads, sizeof(threads)))
+	if (!prompt("Mining threads (0 = auto)", threads, threads, sizeof(threads)))
 		return false;
 	/* keep only a leading integer; fall back to auto on garbage */
 	{

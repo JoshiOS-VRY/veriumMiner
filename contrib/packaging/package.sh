@@ -43,20 +43,36 @@ if [[ "$PLATFORM" == macos* ]]; then
   cp "$BINARY" "$APP/Contents/MacOS/cpuminer"
   chmod +x "$APP/Contents/MacOS/cpuminer"
   sed "s/@VERSION@/${VERSION}/g" contrib/macos/Info.plist > "$APP/Contents/Info.plist"
+  # Ad-hoc sign so Gatekeeper does not report the bundle as "damaged" (unsigned
+  # downloads still need quarantine cleared — use the .command launchers).
+  if command -v codesign >/dev/null 2>&1; then
+    codesign -s - --force --timestamp "$APP/Contents/MacOS/cpuminer" 2>/dev/null || true
+    codesign -s - --force --deep "$APP" 2>/dev/null || true
+  fi
+  for cmd in "Verium Miner.command" "Change Settings.command"; do
+    cp "contrib/macos/${cmd}" "$STAGE/${cmd}"
+    chmod +x "$STAGE/${cmd}"
+  done
   cat > "$STAGE/START.txt" <<'EOF'
 Verium Miner — macOS quick start
 ================================
 
-Double-click **Verium Miner.app** in this folder.
+**Start here:** double-click **Verium Miner.command** (not the .app directly).
 
-  • First run: a setup wizard asks for your wallet and pool, then mining starts.
-  • Later runs: mining starts automatically (config is saved).
+  • First run: setup wizard, then mining starts.
+  • Later runs: mining starts with your saved settings.
 
-Your settings are stored in:
-  ~/.cpuminer/cpuminer-conf.json
+If macOS says the app is "damaged":
+  • Use **Verium Miner.command** (it clears the download quarantine flag), or
+  • Terminal: xattr -dr com.apple.quarantine "/path/to/this/folder"
+  • Then right-click Verium Miner.app → Open (first time only).
 
-Advanced: run ./cpuminer from Terminal, or ./cpuminer --setup to change settings.
-Optional: edit cpuminer-conf.example.json by hand instead of the wizard.
+Change wallet, pool, or thread count later:
+  • Double-click **Change Settings.command** (same as: cpuminer --setup)
+  • Or edit ~/.cpuminer/cpuminer-conf.json ("threads": N, 0 = auto)
+  • One-off thread override: ./cpuminer -t 4
+
+Settings file: ~/.cpuminer/cpuminer-conf.json
 EOF
 else
   cat > "$STAGE/START.txt" <<'EOF'

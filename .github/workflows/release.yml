@@ -110,6 +110,13 @@ jobs:
           codesign --verify --verbose build/cpuminer
       - name: Package
         run: bash contrib/packaging/package.sh "macos-${{ matrix.arch }}" build/cpuminer
+      - name: Code sign app bundle (optional)
+        if: env.MACOS_SIGN_IDENTITY != ''
+        run: |
+          APP=$(find dist -maxdepth 2 -name 'Verium Miner.app' -print -quit)
+          codesign --force --options runtime --timestamp --deep \
+            --sign "$MACOS_SIGN_IDENTITY" "$APP"
+          codesign --verify --verbose "$APP"
       - uses: actions/upload-artifact@v4
         with:
           name: dist-macos-${{ matrix.arch }}
