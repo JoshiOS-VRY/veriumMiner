@@ -120,6 +120,7 @@ static int opt_fail_pause = 30;
 static bool opt_tune = false;
 static int opt_status_interval = 30;
 static bool opt_setup = false;
+static bool opt_url_from_cli = false;
 static char *opt_log_file = NULL;
 static int opt_profile = 0; /* 0=background, 1=dedicated */
 static volatile int g_shutdown = 0;
@@ -1566,7 +1567,7 @@ static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work,
 			if (net_diff > 0. && work->targetdiff > 0.)
 				snprintf(pctbuf, sizeof(pctbuf), " | pool %.4f%% of network",
 					100.0 * work->targetdiff / net_diff);
-			applog(LOG_WARNING, "Pool difficulty %.8g (wire %.8g)%s%s",
+			applog(LOG_INFO, "Pool difficulty %.8g (wire %.8g)%s%s",
 				work->targetdiff, stratum_diff, sdiff, pctbuf);
 		}
 }
@@ -2439,6 +2440,7 @@ void parse_arg(int key, char *arg)
 		break;
 	case 'o': {			/* --url */
 		char *ap, *hp;
+		opt_url_from_cli = true;
 		ap = strstr(arg, "://");
 		ap = ap ? ap + 3 : arg;
 		hp = strrchr(arg, '@');
@@ -2845,8 +2847,12 @@ int main(int argc, char *argv[]) {
 	if (!opt_benchmark && !rpc_url) {
 		char defconfig[MAX_PATH] = { 0 };
 		if (opt_setup) {
-			if (onboard_interactive(defconfig, sizeof(defconfig)))
-				parse_arg('c', defconfig);
+			if (!onboard_interactive(defconfig, sizeof(defconfig)))
+				show_usage_and_exit(1);
+			/* Wizard only: do not start mining in the same process unless -o was given. */
+			if (!opt_url_from_cli)
+				return 0;
+			parse_arg('c', defconfig);
 		}
 		get_defconfig_path(defconfig, MAX_PATH, argv[0]);
 		if (strlen(defconfig)) {
@@ -2880,7 +2886,9 @@ int main(int argc, char *argv[]) {
 	if (!opt_n_threads) {
 		int rec = topo_recommended_threads(scrypt_scratchpad_bytes(opt_scrypt_n));
 		opt_n_threads = rec > 0 ? rec : num_cpus;
-		applog(LOG_NOTICE, "Auto threads: %d (P-cores + RAM + bandwidth)", opt_n_threads);
+		applog(LOG_NOTICE,
+			"Auto threads: %d (from topology: min of P-cores, L3, free RAM, bandwidth — not all logical CPUs)",
+			opt_n_threads);
 	} else {
 		int rec = topo_recommended_threads(scrypt_scratchpad_bytes(opt_scrypt_n));
 		if (rec > 0 && opt_n_threads > rec)

@@ -146,12 +146,50 @@ cmake --build build -j
 
 Other platforms: see [Build](#build) below.
 
-Optional install to `/usr/local/bin`:
+**Windows (MSYS2 MinGW64)** — install [MSYS2](https://www.msys2.org/), open the
+**MINGW64** shell, then:
+
+```sh
+pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja \
+                   mingw-w64-x86_64-curl mingw-w64-x86_64-jansson
+cd /c/Users/you/veriumMiner
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+```
+
+From **PowerShell** (after the build above):
+
+```powershell
+cd C:\Users\you\veriumMiner
+.\build\cpuminer.exe --setup    # writes config, then exits
+.\build\cpuminer.exe            # mines using the saved config
+```
+
+Release and default **MinGW** CMake builds use `-DSTATIC_BUILD=ON` so you do **not**
+need `C:\msys64\mingw64\bin` on `PATH`. If you see `libwinpthread-1.dll` missing,
+reconfigure with `cmake -B build -DSTATIC_BUILD=ON` and rebuild.
+
+> Use **MINGW64** paths in the MSYS2 shell (`cd /c/Users/you/veriumMiner`), not
+> in PowerShell (`cd /c/...` is bash-only). In PowerShell use `cd C:\Users\you\veriumMiner`.
+
+> **No `build` folder yet?** Run `cmake -B build` and `cmake --build build` first,
+> or use a [release zip](#download--run) (no compile).
+
+Optional install (only **after** `cmake -B build` and `cmake --build build`):
 
 ```sh
 cmake --install build
-# then run: cpuminer ...
+# Linux/macOS: installs to /usr/local/bin/cpuminer
 ```
+
+```powershell
+# Windows: pick a prefix you own (no admin required)
+cmake --install build --prefix "$env:USERPROFILE\bin"
+# then add $env:USERPROFILE\bin to PATH, or run $env:USERPROFILE\bin\cpuminer.exe
+```
+
+If `cmake --install` says `cmake_install.cmake` is missing, you have not configured the
+`build` folder yet — run `cmake -B build` first.
 
 ### 3. Configure and run
 
@@ -159,8 +197,15 @@ cmake --install build
 path below):
 
 ```sh
+# Linux / macOS / MSYS2 bash
 ./build/cpuminer --setup
 ./build/cpuminer
+```
+
+```powershell
+# Windows PowerShell (use backslashes and .exe)
+.\build\cpuminer.exe --setup
+.\build\cpuminer.exe
 ```
 
 **One-shot from the command line** (no config file):
@@ -169,10 +214,18 @@ path below):
 ./build/cpuminer -o stratum+tcp://POOL:PORT -u WALLET.WORKER -p x -t 0
 ```
 
+```powershell
+.\build\cpuminer.exe -o stratum+tcp://POOL:PORT -u WALLET.WORKER -p x -t 0
+```
+
 **Vericonomy official pool** ([mine.vericonomy.com](https://mine.vericonomy.com)):
 
 ```sh
 ./build/cpuminer -o stratum+tcp://mine.vericonomy.com:3333 -u VYourAddress.worker1 -p x -t 0
+```
+
+```powershell
+.\build\cpuminer.exe -o stratum+tcp://mine.vericonomy.com:3333 -u VYourAddress.worker1 -p x -t 0
 ```
 
 Use your Verium address (starts with `V`) and an optional worker label after the dot.

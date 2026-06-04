@@ -91,13 +91,19 @@ bool onboard_interactive(char *out_config_path, size_t pathsz)
 	printf("Press Enter to accept the [default] shown for each question.\n\n");
 
 	tp = topo_get();
-	if (tp)
-		rec_threads = tp->performance_cpus > 0 ? tp->performance_cpus
-		                                       : tp->physical_cpus;
-	if (rec_threads > 0)
-		printf("Detected CPU: %d logical / %d physical core(s); auto will use "
-		       "~%d mining thread(s).\n\n",
-		       tp->logical_cpus, tp->physical_cpus, rec_threads);
+	/* Same formula as runtime when threads=0 (RAM + L3 + bandwidth, not core count). */
+	rec_threads = topo_recommended_threads(scrypt_scratchpad_bytes(1048576));
+	if (tp && rec_threads > 0) {
+		printf("Detected CPU: %d logical / %d physical core(s).\n",
+		       tp->logical_cpus, tp->physical_cpus);
+		if (tp->performance_cpus > 0 && tp->performance_cpus != tp->physical_cpus)
+			printf("  Hybrid CPU: %d performance (P) logical CPUs detected.\n",
+			       tp->performance_cpus);
+		printf("  threads=0 (auto) will use ~%d worker(s) (~%.0f MB scrypt scratchpad each;\n",
+		       rec_threads,
+		       scrypt_scratchpad_bytes(1048576) / (1024.0 * 1024.0));
+		printf("  auto may be below core count due to RAM, L3 cache, or memory bandwidth).\n\n");
+	}
 
 	if (!prompt("Pool URL (stratum+tcp://host:port)", ONBOARD_DEFAULT_POOL,
 	            url, sizeof(url)))
@@ -163,6 +169,8 @@ bool onboard_interactive(char *out_config_path, size_t pathsz)
 
 	snprintf(out_config_path, pathsz, "%s", path);
 	printf("\nConfiguration saved to %s\n", path);
-	printf("Start mining now by running the miner again with no arguments.\n\n");
+	printf("Start mining: run cpuminer with no arguments (reads that config).\n");
+	printf("  Windows:  cpuminer.exe\n");
+	printf("  Linux:    ./cpuminer\n\n");
 	return true;
 }

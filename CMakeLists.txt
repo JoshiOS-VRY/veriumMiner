@@ -18,7 +18,12 @@ option(USE_ASM        "Use hand-written assembly cores where available" ON)
 option(MARCH_NATIVE   "Build with -march=native (single-machine builds)" OFF)
 option(ENABLE_LTO     "Enable link-time optimization for Release builds"  ON)
 option(BUILD_TESTS    "Build the hash regression tests"                   ON)
-option(STATIC_BUILD   "Statically link runtime/dependencies for distribution" OFF)
+# MinGW Windows builds default to static so cpuminer.exe runs without MSYS DLLs.
+set(_VRM_STATIC_BUILD_DEFAULT OFF)
+if(WIN32 AND NOT MSVC)
+    set(_VRM_STATIC_BUILD_DEFAULT ON)
+endif()
+option(STATIC_BUILD   "Statically link runtime/dependencies for distribution" ${_VRM_STATIC_BUILD_DEFAULT})
 option(WERROR         "Treat compiler warnings as errors (CI gate)"            OFF)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)

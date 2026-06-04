@@ -121,7 +121,7 @@ void logfmt_status_panel(bool pool_ok, const char *pool_status,
 			"Pool %s %s · %s · worker %s",
 			pool_dot, pool_label, algo, worker_short);
 		applog(LOG_BLUE,
-			"%s now · 1m %s · 15m %s · shares %u/%u (%.1f%%) · threads %d/%d · up %s",
+			"%s now · 1m %s · 15m %s · shares %u/%u (%.1f%%) · workers %d · %d CPUs · up %s",
 			rate_now, rate_1m, rate_15m,
 			accepted, total, accept_pct,
 			threads, phys_cpus, uptime);
@@ -132,7 +132,7 @@ void logfmt_status_panel(bool pool_ok, const char *pool_status,
 		"Pool %s %s · %s · worker %s · %.0f°C",
 		pool_dot, pool_label, algo, worker_short, (double)temp_c);
 	applog(LOG_BLUE,
-		"%s now · 1m %s · 15m %s · shares %u/%u (%.1f%%) · threads %d/%d · up %s",
+		"%s now · 1m %s · 15m %s · shares %u/%u (%.1f%%) · workers %d · %d CPUs · up %s",
 		rate_now, rate_1m, rate_15m,
 		accepted, total, accept_pct,
 		threads, phys_cpus, uptime);
