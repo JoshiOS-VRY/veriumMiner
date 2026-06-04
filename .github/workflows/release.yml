@@ -87,11 +87,11 @@ jobs:
         with:
           fetch-depth: 0
       - name: Install build tools
-        run: brew install cmake
+        run: brew install cmake jansson curl
       - name: Configure
-        # Do not install jansson: FetchContent static-links it so the binary
-        # depends only on the always-present system libcurl.
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
+        run: |
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix jansson);$(brew --prefix curl)" >> "$GITHUB_ENV"
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
       - name: Build
         run: cmake --build build -j
       - name: Test (golden hash)

@@ -53,6 +53,12 @@ set(JANSSON_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(jansson
     GIT_REPOSITORY https://github.com/akheron/jansson.git
     GIT_TAG        v2.14)
+# CMake 4+ no longer configures subprojects that declare cmake_minimum_required
+# below 3.5 (jansson 2.14 still does). Allow the fetch path on CI/macOS brew-less
+# release builds until jansson bumps its minimum.
+if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.0")
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+endif()
 FetchContent_MakeAvailable(jansson)
 
 if(TARGET jansson::jansson)
