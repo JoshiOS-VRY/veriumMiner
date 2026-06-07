@@ -112,3 +112,24 @@ an immediate exit. This makes service restarts safe.
   grants `LimitMEMLOCK=infinity`; also configure hugepages at the OS level.
 - On big.LITTLE / hybrid CPUs, workers are pinned to performance cores
   automatically.
+
+## 24/7 checklist
+
+Use this before leaving a rig unattended:
+
+1. **Config** — Real wallet/pool (pool) or RPC + `coinbase-addr` (solo); `"threads": 0`
+   or a tested manual count; `"profile": "dedicated"` on mining-only machines.
+2. **Logging** — Set `"log-file"` (or `--log-file`) so restarts leave an audit trail.
+3. **Service** — Install systemd / launchd / Scheduled Task (section 3 above) so the
+   miner restarts on failure and starts at boot.
+4. **Dependencies** — For solo, ensure **veriumd** runs and stays synced *before* the
+   miner starts. See [SOLO_MINING.md](SOLO_MINING.md).
+5. **Health** — Probe the local API periodically:
+
+```sh
+printf 'health\n' | nc -w 2 127.0.0.1 4048
+printf 'summary\n' | nc -w 2 127.0.0.1 4048
+```
+
+6. **Resilience** — Pool mode: optional `"backup-url"` for failover. The miner
+   watchdog resets stalled connections; shutdown is graceful on `SIGTERM` (section 5).

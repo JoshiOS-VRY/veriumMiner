@@ -23,6 +23,13 @@
 
 #define ONBOARD_DEFAULT_POOL "stratum+tcp://mine.vericonomy.com:3333"
 
+static bool url_is_solo_rpc(const char *url)
+{
+	if (!url || !url[0])
+		return false;
+	return !strncasecmp(url, "http://", 7) || !strncasecmp(url, "https://", 8);
+}
+
 static void trim_line(char *s)
 {
 	size_t n = strlen(s);
@@ -82,9 +89,10 @@ static bool prompt(const char *label, const char *deflt, char *out, size_t outsz
 bool onboard_interactive(char *out_config_path, size_t pathsz)
 {
 	char url[512] = { 0 }, user[160] = { 0 }, pass[128] = { 0 };
-	char backup[512] = { 0 }, threads[16] = "0", path[512];
-	char url_e[1024], user_e[512], pass_e[512], backup_e[1024];
+	char coinbase[160] = { 0 }, backup[512] = { 0 }, threads[16] = "0", path[512];
+	char url_e[1024], user_e[512], pass_e[512], coinbase_e[512], backup_e[1024];
 	const struct topo_info *tp;
+	bool solo;
 	int rec_threads = 0;
 	FILE *f;
 	json_error_t err;
@@ -113,6 +121,10 @@ bool onboard_interactive(char *out_config_path, size_t pathsz)
 		if (json_is_integer(val))
 			snprintf(threads, sizeof(threads), "%d",
 			         (int)json_integer_value(val));
+		val = json_object_get(existing, "coinbase-addr");
+		if (json_is_string(val) && json_string_value(val)[0])
+			snprintf(coinbase, sizeof(coinbase), "%s",
+			         json_string_value(val));
 	}
 	if (existing)
 		json_decref(existing);
@@ -137,24 +149,43 @@ bool onboard_interactive(char *out_config_path, size_t pathsz)
 		printf("  auto may be below core count due to RAM, L3 cache, or memory bandwidth).\n\n");
 	}
 
-	if (!prompt("Pool URL (stratum+tcp://host:port)", url, url, sizeof(url)))
-		return false;
-	if (strncmp(url, "stratum+tcp://", 14) != 0 &&
-	    strncmp(url, "stratum+ssl://", 14) != 0)
-		printf("  Note: pool URLs normally start with stratum+tcp://\n");
-
-	if (!prompt("Verium wallet address (starts with V), optional .worker",
-	            NULL, user, sizeof(user)))
-		return false;
-	if (user[0] && user[0] != 'V')
-		printf("  Note: Verium addresses normally start with an uppercase 'V'.\n");
-
-	if (!prompt("Password (usually 'x')", pass, pass, sizeof(pass)))
+	if (!prompt("Mining URL (pool stratum+tcp://… or solo http://127.0.0.1:33987)",
+	            url, url, sizeof(url)))
 		return false;
 
-	if (!prompt("Backup pool URL (optional, Enter to skip)", "",
-	            backup, sizeof(backup)))
-		return false;
+	solo = url_is_solo_rpc(url);
+	if (solo) {
+		if (!prompt("RPC username (from verium.conf rpcuser)", user, user,
+		            sizeof(user)))
+			return false;
+		if (!pass[0] || !strcmp(pass, "x"))
+			pass[0] = '\0';
+		if (!prompt("RPC password (from verium.conf rpcpassword)", pass, pass,
+		            sizeof(pass)))
+			return false;
+		if (!prompt("Payout address for block rewards (--coinbase-addr, V…)",
+		            coinbase[0] ? coinbase : NULL, coinbase, sizeof(coinbase)))
+			return false;
+		if (coinbase[0] && coinbase[0] != 'V')
+			printf("  Note: Verium payout addresses normally start with 'V'.\n");
+	} else {
+		if (strncmp(url, "stratum+tcp://", 14) != 0 &&
+		    strncmp(url, "stratum+ssl://", 14) != 0)
+			printf("  Note: pool URLs normally start with stratum+tcp://\n");
+
+		if (!prompt("Verium wallet address (starts with V), optional .worker",
+		            NULL, user, sizeof(user)))
+			return false;
+		if (user[0] && user[0] != 'V')
+			printf("  Note: Verium addresses normally start with an uppercase 'V'.\n");
+
+		if (!prompt("Password (usually 'x')", pass, pass, sizeof(pass)))
+			return false;
+
+		if (!prompt("Backup pool URL (optional, Enter to skip)", "",
+		            backup, sizeof(backup)))
+			return false;
+	}
 
 	if (!prompt("Mining threads (0 = auto)", threads, threads, sizeof(threads)))
 		return false;
@@ -183,15 +214,18 @@ bool onboard_interactive(char *out_config_path, size_t pathsz)
 	json_escape(user, user_e, sizeof(user_e));
 	json_escape(pass, pass_e, sizeof(pass_e));
 	json_escape(backup, backup_e, sizeof(backup_e));
+	json_escape(coinbase, coinbase_e, sizeof(coinbase_e));
 
 	fprintf(f, "{\n");
 	fprintf(f, "\t\"url\": \"%s\",\n", url_e);
-	if (backup[0])
+	if (!solo && backup[0])
 		fprintf(f, "\t\"backup-url\": \"%s\",\n", backup_e);
 	fprintf(f, "\t\"user\": \"%s\",\n", user_e);
 	fprintf(f, "\t\"pass\": \"%s\",\n", pass_e);
+	if (solo && coinbase[0])
+		fprintf(f, "\t\"coinbase-addr\": \"%s\",\n", coinbase_e);
 	fprintf(f, "\t\"threads\": %s,\n", threads);
-	fprintf(f, "\t\"profile\": \"background\",\n");
+	fprintf(f, "\t\"profile\": \"%s\",\n", solo ? "dedicated" : "background");
 	fprintf(f, "\t\"status-interval\": 30,\n");
 	fprintf(f, "\t\"api-bind\": \"127.0.0.1:4048\",\n");
 	fprintf(f, "\t\"quiet\": false\n");

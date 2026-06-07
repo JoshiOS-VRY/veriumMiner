@@ -2820,8 +2820,17 @@ static bool stdin_is_interactive(void)
 #endif
 }
 
+static bool url_is_solo_rpc(const char *url)
+{
+	if (!url || !url[0])
+		return false;
+	return !strncasecmp(url, "http://", 7) || !strncasecmp(url, "https://", 8);
+}
+
 static bool config_has_placeholder_user(void)
 {
+	if (url_is_solo_rpc(rpc_url))
+		return false;
 	return rpc_user && strstr(rpc_user, "YOUR_VERIUM_ADDRESS");
 }
 

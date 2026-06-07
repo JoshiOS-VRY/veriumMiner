@@ -7,7 +7,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(veriumminer
-        VERSION 1.4.0
+        VERSION 1.4.6
         DESCRIPTION "Multi-threaded CPU miner for Verium (scrypt^2)"
         LANGUAGES C CXX)
 
@@ -266,13 +266,19 @@ if(WIN32)
     set(VRM_FILE_VERSION_COMMA
         "${PROJECT_VERSION_MAJOR},${PROJECT_VERSION_MINOR},${PROJECT_VERSION_PATCH}")
     set(VRM_VERSION_STRING "${PROJECT_VERSION}")
+    set(VRM_MANIFEST_VERSION "${PROJECT_VERSION}.0")
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/res/veriumminer.manifest.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/veriumminer.manifest"
+        @ONLY)
     configure_file(
         "${CMAKE_CURRENT_SOURCE_DIR}/res/cpuminer.rc.in"
         "${CMAKE_CURRENT_BINARY_DIR}/cpuminer.rc"
         @ONLY)
     target_sources(cpuminer PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/cpuminer.rc")
     set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/cpuminer.rc"
-        PROPERTIES COMPILE_FLAGS "-I \"${CMAKE_CURRENT_SOURCE_DIR}/res\"")
+        PROPERTIES COMPILE_FLAGS
+        "-I \"${CMAKE_CURRENT_SOURCE_DIR}/res\" -I \"${CMAKE_CURRENT_BINARY_DIR}\"")
 endif()
 
 # ---------------------------------------------------------------------------

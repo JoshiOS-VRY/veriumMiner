@@ -23,6 +23,7 @@ configs and pool scripts.
 #### Table of contents
 
 - [Download & run](#download--run)
+- [Mining modes (pool and solo)](#mining-modes-pool-and-solo)
 - [Quick start (build from source)](#quick-start-build-from-source)
 - [Running headless / as a service](#running-headless--as-a-service)
 - [What's new in Tippy](#whats-new-in-tippy)
@@ -68,13 +69,13 @@ launches the setup wizard and then starts mining; later runs use the saved confi
 in `~/.cpuminer/cpuminer-conf.json`. To change settings later, use **`Change
 Settings.command`** or `./cpuminer --setup`.
 
-# Linux
+On **Linux**:
 
-tar xzf veriumminer-_.tar.gz && cd veriumminer-_
-./cpuminer --setup # optional; first interactive run also runs the wizard
+```sh
+tar xzf veriumminer-*.tar.gz && cd veriumminer-*
+./cpuminer --setup   # optional; first interactive run also runs the wizard
 ./cpuminer
-
-````
+```
 
 Or one-shot against the public pool (run from the folder you extracted — no
 `build/` path):
@@ -82,7 +83,7 @@ Or one-shot against the public pool (run from the folder you extracted — no
 ```powershell
 # Windows (PowerShell or cmd, from the extracted folder)
 .\cpuminer.exe -o stratum+tcp://mine.vericonomy.com:3333 -u VYourAddress.worker1 -p x -t 0
-````
+```
 
 ```sh
 # Linux / macOS
@@ -105,7 +106,39 @@ Get-FileHash .\cpuminer.exe -Algorithm SHA256
 > and will be enabled once certificates are provisioned. Until then, verify with
 > `SHA256SUMS` and see [Troubleshooting](#troubleshooting) for antivirus notes.
 >
-> Docker: `docker run --rm ghcr.io/joshios-vry/veriumminer:latest -o stratum+tcp://mine.vericonomy.com:3333 -u VYourAddress.worker1 -p x`
+> Docker: `docker run --rm ghcr.io/joshios-vry/veriumminer:1.4.6 -o stratum+tcp://mine.vericonomy.com:3333 -u VYourAddress.worker1 -p x`
+
+## Mining modes (pool and solo)
+
+The miner supports **pool mining** (Stratum) and **solo mining** (JSON-RPC to a
+local `veriumd` node via getblocktemplate/getwork).
+
+### Pool mining (default)
+
+Point at a Stratum URL with your Verium wallet as the username:
+
+```sh
+./cpuminer -o stratum+tcp://mine.vericonomy.com:3333 -u VYourAddress.worker1 -p x -t 0
+```
+
+JSON config (`cpuminer-conf.json` or `cpuminer-conf.example.json` in release
+archives): set `url`, `user` (wallet, optional `.worker`), and `pass`.
+
+### Solo mining
+
+Requires a synced local node with RPC enabled. Mainnet default RPC port is
+**33987**. Set your block payout address with `--coinbase-addr`:
+
+```sh
+./cpuminer -o http://127.0.0.1:33987 -O rpcuser:rpcpassword \
+  --coinbase-addr=VYourPayoutAddress -t 0 --profile dedicated
+```
+
+JSON config example: see [`cpuminer-conf.solo.example.json`](cpuminer-conf.solo.example.json).
+Full walkthrough: [`docs/SOLO_MINING.md`](docs/SOLO_MINING.md).
+
+On Windows, edit and run [`contrib/windows/mine-verium-solo.bat`](contrib/windows/mine-verium-solo.bat)
+(after `veriumd` is running).
 
 ## What's new in Tippy
 
@@ -272,7 +305,13 @@ Ready-to-use service definitions ship in [`contrib/`](contrib):
 
 Use `--profile dedicated` on mining-only machines for higher CPU priority, or
 the default `background` profile on shared/desktop machines to stay responsive.
-A full walkthrough is in [`docs/HEADLESS.md`](docs/HEADLESS.md).
+A full walkthrough is in [`docs/HEADLESS.md`](docs/HEADLESS.md). For solo mining
+on a headless node, also see [`docs/SOLO_MINING.md`](docs/SOLO_MINING.md).
+
+**24/7 operations:** use `--log-file`, enable a service unit (systemd / launchd /
+Scheduled Task), and probe health with `printf 'health\n' | nc -w 2 127.0.0.1 4048`.
+The built-in watchdog resets stalled pool connections; pool failover uses
+`--backup-url`.
 
 The miner shuts down cleanly on `Ctrl-C` / `SIGTERM` (and the `quit` API
 command): it stops the worker threads, frees scrypt scratchpads, closes the
@@ -289,7 +328,7 @@ pool connection, and exits — so service restarts are graceful.
 | Windows x86_64      | windows-mingw64          | MSYS2 / MinGW-w64                   |
 | FreeBSD x86_64      | freebsd-x86_64           | VM-based CI                         |
 
-**Version:** 1.4.0 (see `CMakeLists.txt`).
+**Version:** 1.4.6 (see `CMakeLists.txt`).
 
 # Dependencies
 
@@ -456,9 +495,10 @@ After a **release download**, run the binary from the extracted folder (add
 Run `cpuminer --help` / `cpuminer.exe --help` for the full list of options.
 Common ones:
 
-- `-o, --url` — primary pool URL (`stratum+tcp://...`)
+- `-o, --url` — primary pool URL (`stratum+tcp://...`) or solo node (`http://127.0.0.1:33987`)
 - `--backup-url` — comma-separated backup pools (automatic failover)
-- `-u, --user` / `-p, --pass` — wallet/worker credentials
+- `-u, --user` / `-p, --pass` — wallet/worker credentials (pool) or RPC credentials (solo)
+- `--coinbase-addr` — solo mining payout address (required for getblocktemplate)
 - `-t, --threads` — mining threads (`0` = auto from CPU topology and L3 cache)
 - `--setup` — interactive wizard writes the default config file (see below)
 - `--tune` — print recommended thread count at startup

@@ -37,6 +37,9 @@ cp COPYING "$STAGE/LICENSE.txt" 2>/dev/null || cp LICENSE "$STAGE/LICENSE.txt" 2
 if [ -f cpuminer-conf.json ]; then
   cp cpuminer-conf.json "$STAGE/cpuminer-conf.example.json"
 fi
+if [ -f cpuminer-conf.solo.example.json ]; then
+  cp cpuminer-conf.solo.example.json "$STAGE/"
+fi
 if [[ "$PLATFORM" == macos* ]]; then
   APP="$STAGE/Verium Miner.app"
   mkdir -p "$APP/Contents/MacOS"
@@ -73,14 +76,37 @@ Change wallet, pool, or thread count later:
   • One-off thread override: ./cpuminer -t 4
 
 Settings file: ~/.cpuminer/cpuminer-conf.json
+Solo mining: see docs/SOLO_MINING.md and cpuminer-conf.solo.example.json
+EOF
+elif [[ "$PLATFORM" == linux* ]]; then
+  cat > "$STAGE/START.txt" <<'EOF'
+Verium Miner — Linux quick start
+================================
+
+1. From this folder, run the setup wizard (creates ~/.cpuminer/cpuminer-conf.json):
+
+   ./cpuminer --setup
+
+2. Start mining:
+
+   ./cpuminer
+
+Pool one-liner:
+   ./cpuminer -o stratum+tcp://mine.vericonomy.com:3333 -u VYourAddress.worker1 -p x -t 0
+
+Optional: copy cpuminer-conf.example.json (pool) or cpuminer-conf.solo.example.json
+(solo via local veriumd) and edit by hand instead of --setup.
+
+Headless / 24/7: see docs/HEADLESS.md and contrib/systemd/
+Solo mining: see docs/SOLO_MINING.md
 EOF
 else
   cat > "$STAGE/START.txt" <<'EOF'
-Verium Miner — first run
-========================
+Verium Miner — Windows quick start
+==================================
 
 1. Open PowerShell or cmd in this folder.
-2. Run the setup wizard (creates your wallet/pool config):
+2. Run the setup wizard (creates %APPDATA%\cpuminer\cpuminer-conf.json):
 
    cpuminer.exe --setup
 
@@ -88,7 +114,11 @@ Verium Miner — first run
 
    cpuminer.exe
 
-Optional: copy cpuminer-conf.example.json and edit by hand instead of --setup.
+Optional: copy cpuminer-conf.example.json (pool) or cpuminer-conf.solo.example.json
+(solo via local veriumd) and edit by hand instead of --setup.
+
+Batch helpers: contrib\windows\mine-verium-pool.bat and mine-verium-solo.bat
+Headless / 24/7: see docs\HEADLESS.md and contrib\windows\install-service.ps1
 EOF
 fi
 
