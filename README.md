@@ -1,5 +1,4 @@
-Tippy Verium Miner
-==================
+# Tippy Verium Miner
 
 A multi-threaded CPU miner for **Verium** using the scrypt² ("VeriHash")
 proof-of-work algorithm.
@@ -23,35 +22,33 @@ configs and pool scripts.
 
 #### Table of contents
 
-* [Download & run](#download--run)
-* [Quick start (build from source)](#quick-start-build-from-source)
-* [Running headless / as a service](#running-headless--as-a-service)
-* [What's new in Tippy](#whats-new-in-tippy)
-* [Supported platforms](#supported-platforms)
-* [Dependencies](#dependencies)
-* [Build](#build)
-* [Build options](#build-options)
-* [Usage](#usage)
-* [Troubleshooting](#troubleshooting)
-* [Hash regression tests](#hash-regression-tests)
-* [Security](#security)
-* [Contributing](#contributing)
-* [License](#license)
+- [Download & run](#download--run)
+- [Quick start (build from source)](#quick-start-build-from-source)
+- [Running headless / as a service](#running-headless--as-a-service)
+- [What's new in Tippy](#whats-new-in-tippy)
+- [Supported platforms](#supported-platforms)
+- [Dependencies](#dependencies)
+- [Build](#build)
+- [Build options](#build-options)
+- [Usage](#usage)
+- [Troubleshooting](#troubleshooting)
+- [Hash regression tests](#hash-regression-tests)
+- [Security](#security)
+- [Contributing](#contributing)
+- [License](#license)
 
-
-Download & run
---------------
+## Download & run
 
 Prebuilt, checksummed binaries are published for every release. Verify the
 download against `SHA256SUMS` before running.
 
 1. Go to the [Releases page](https://github.com/JoshiOS-VRY/veriumMiner/releases)
    and download the archive for your platform:
-   * `veriumminer-<ver>-windows-x86_64.zip` — single self-contained
+   - `veriumminer-<ver>-windows-x86_64.zip` — single self-contained
      `cpuminer.exe` (no extra DLLs needed), plus an optional installer
      (`veriumminer-setup.exe`).
-   * `veriumminer-<ver>-linux-x86_64.tar.gz` / `...-linux-arm64.tar.gz`
-   * `veriumminer-<ver>-macos-arm64.tar.gz` / `...-macos-x86_64.tar.gz`
+   - `veriumminer-<ver>-linux-x86_64.tar.gz` / `...-linux-arm64.tar.gz`
+   - `veriumminer-<ver>-macos-arm64.tar.gz` / `...-macos-x86_64.tar.gz`
 2. Extract it, open the folder, and read **`START.txt`**.
 
 3. **First run must be the setup wizard** (creates `%APPDATA%\cpuminer\cpuminer-conf.json`):
@@ -72,18 +69,20 @@ in `~/.cpuminer/cpuminer-conf.json`. To change settings later, use **`Change
 Settings.command`** or `./cpuminer --setup`.
 
 # Linux
-tar xzf veriumminer-*.tar.gz && cd veriumminer-*
-./cpuminer --setup   # optional; first interactive run also runs the wizard
-./cpuminer
-```
 
-Or one-shot against the official pool (run from the folder you extracted — no
+tar xzf veriumminer-_.tar.gz && cd veriumminer-_
+./cpuminer --setup # optional; first interactive run also runs the wizard
+./cpuminer
+
+````
+
+Or one-shot against the public pool (run from the folder you extracted — no
 `build/` path):
 
 ```powershell
 # Windows (PowerShell or cmd, from the extracted folder)
 .\cpuminer.exe -o stratum+tcp://mine.vericonomy.com:3333 -u VYourAddress.worker1 -p x -t 0
-```
+````
 
 ```sh
 # Linux / macOS
@@ -108,35 +107,31 @@ Get-FileHash .\cpuminer.exe -Algorithm SHA256
 >
 > Docker: `docker run --rm ghcr.io/joshios-vry/veriumminer:latest -o stratum+tcp://mine.vericonomy.com:3333 -u VYourAddress.worker1 -p x`
 
-
-What's new in Tippy
--------------------
+## What's new in Tippy
 
 This fork modernizes and hardens the FireWorm71 tree for day-to-day mining and
 operations:
 
-* **CMake** build on all platforms (replaces autotools + legacy Visual Studio)
-* **CI** on every push: Linux (x86_64 GCC/Clang, ARM64), macOS (Apple Silicon +
+- **CMake** build on all platforms (replaces autotools + legacy Visual Studio)
+- **CI** on every push: Linux (x86_64 GCC/Clang, ARM64), macOS (Apple Silicon +
   Intel via `macos-15-intel`), Windows (MSYS2), and FreeBSD — plus hash
   regression tests and `--cputest`
-* **No OpenSSL** — hashing uses the in-tree scrypt² core only
-* **Dead algorithms removed** — CryptoNight/Monero and other non-Verium code
+- **No OpenSSL** — hashing uses the in-tree scrypt² core only
+- **Dead algorithms removed** — CryptoNight/Monero and other non-Verium code
   stripped out
-* **CPU topology** — auto thread count (`-t 0`) from physical cores, L3 cache,
+- **CPU topology** — auto thread count (`-t 0`) from physical cores, L3 cache,
   and RAM budget; topology-aware affinity binding
-* **Pool failover** — `--backup-url` with backoff and jitter
-* **Monitoring API** — `summary`, `json`, `health`, and Prometheus-style
+- **Pool failover** — `--backup-url` with backoff and jitter
+- **Monitoring API** — `summary`, `json`, `health`, and Prometheus-style
   `metrics` on port 4048
-* **Setup wizard** — `--setup` writes a starter `cpuminer-conf.json`
-* **Portable macOS / ARM64** — Apple Silicon and Linux ARM64 use the validated C
+- **Setup wizard** — `--setup` writes a starter `cpuminer-conf.json`
+- **Portable macOS / ARM64** — Apple Silicon and Linux ARM64 use the validated C
   scrypt core (assembly is x86/x86-64 and 32-bit ARM only)
 
 See [`docs/AUDIT_IMPLEMENTATION.md`](docs/AUDIT_IMPLEMENTATION.md) for the full
 audit-to-code mapping.
 
-
-Quick start (build from source)
--------------------------------
+## Quick start (build from source)
 
 ### 1. Get the source
 
@@ -230,7 +225,7 @@ path below):
 .\build\cpuminer.exe -o stratum+tcp://POOL:PORT -u WALLET.WORKER -p x -t 0
 ```
 
-**Vericonomy official pool** ([mine.vericonomy.com](https://mine.vericonomy.com)):
+**Vericonomy public pool** ([mine.vericonomy.com](https://mine.vericonomy.com)):
 
 ```sh
 ./build/cpuminer -o stratum+tcp://mine.vericonomy.com:3333 -u VYourAddress.worker1 -p x -t 0
@@ -258,9 +253,7 @@ On Windows, a **source build** needs MinGW DLLs on `PATH` (see
 [Windows](#windows-msys2--mingw-w64)); the **release** `.exe` is statically
 linked and needs nothing extra.
 
-
-Running headless / as a service
--------------------------------
+## Running headless / as a service
 
 For servers, SBCs (Raspberry Pi), and other non-GUI devices, run the miner in
 the background and persist logs with `--log-file`:
@@ -271,10 +264,10 @@ cpuminer -c /etc/veriumminer/default.json --log-file /var/log/veriumminer/miner.
 
 Ready-to-use service definitions ship in [`contrib/`](contrib):
 
-* **Linux (systemd):** [`contrib/systemd/cpuminer@.service`](contrib/systemd/cpuminer@.service)
+- **Linux (systemd):** [`contrib/systemd/cpuminer@.service`](contrib/systemd/cpuminer@.service)
   — `systemctl enable --now cpuminer@default`
-* **macOS (launchd):** [`contrib/launchd/com.vericonomy.veriumminer.plist`](contrib/launchd/com.vericonomy.veriumminer.plist)
-* **Windows (Scheduled Task):** [`contrib/windows/install-service.ps1`](contrib/windows/install-service.ps1)
+- **macOS (launchd):** [`contrib/launchd/com.vericonomy.veriumminer.plist`](contrib/launchd/com.vericonomy.veriumminer.plist)
+- **Windows (Scheduled Task):** [`contrib/windows/install-service.ps1`](contrib/windows/install-service.ps1)
   — run from an elevated PowerShell to auto-start at boot.
 
 Use `--profile dedicated` on mining-only machines for higher CPU priority, or
@@ -285,35 +278,30 @@ The miner shuts down cleanly on `Ctrl-C` / `SIGTERM` (and the `quit` API
 command): it stops the worker threads, frees scrypt scratchpads, closes the
 pool connection, and exits — so service restarts are graceful.
 
+## Supported platforms
 
-Supported platforms
--------------------
-
-| Platform | CI job | Notes |
-|----------|--------|-------|
-| Linux x86_64 | Linux x86_64 (GCC/Clang) | SSE2/AVX/AVX2 assembly when enabled |
-| Linux ARM64 | Linux ARM64 (GCC) | Portable C core |
-| macOS Apple Silicon | macOS Apple Silicon | Portable C core (`macos-14`) |
-| macOS Intel | macOS Intel | Portable C core (`macos-15-intel`) |
-| Windows x86_64 | windows-mingw64 | MSYS2 / MinGW-w64 |
-| FreeBSD x86_64 | freebsd-x86_64 | VM-based CI |
+| Platform            | CI job                   | Notes                               |
+| ------------------- | ------------------------ | ----------------------------------- |
+| Linux x86_64        | Linux x86_64 (GCC/Clang) | SSE2/AVX/AVX2 assembly when enabled |
+| Linux ARM64         | Linux ARM64 (GCC)        | Portable C core                     |
+| macOS Apple Silicon | macOS Apple Silicon      | Portable C core (`macos-14`)        |
+| macOS Intel         | macOS Intel              | Portable C core (`macos-15-intel`)  |
+| Windows x86_64      | windows-mingw64          | MSYS2 / MinGW-w64                   |
+| FreeBSD x86_64      | freebsd-x86_64           | VM-based CI                         |
 
 **Version:** 1.4.0 (see `CMakeLists.txt`).
 
+# Dependencies
 
-Dependencies
-============
-* A C11/C++11 compiler (GCC, Clang, AppleClang, or MinGW-w64)
-* [CMake](https://cmake.org/) ≥ 3.16
-* [libcurl](https://curl.se/libcurl/)
-* [jansson](https://github.com/akheron/jansson) (auto-downloaded if not found)
-* pthreads (provided by the toolchain on every supported platform)
+- A C11/C++11 compiler (GCC, Clang, AppleClang, or MinGW-w64)
+- [CMake](https://cmake.org/) ≥ 3.16
+- [libcurl](https://curl.se/libcurl/)
+- [jansson](https://github.com/akheron/jansson) (auto-downloaded if not found)
+- pthreads (provided by the toolchain on every supported platform)
 
 OpenSSL is **not** required.
 
-
-Build
-=====
+# Build
 
 The build is the same on every platform:
 
@@ -415,20 +403,18 @@ docker build -t veriumminer .
 docker run --rm veriumminer -o stratum+tcp://POOL:PORT -u WALLET.WORKER -p x
 ```
 
-
-Build options
-=============
+# Build options
 
 Pass these with `-D<option>=ON|OFF` at configure time:
 
-| Option         | Default | Description                                              |
-|----------------|---------|----------------------------------------------------------|
-| `USE_ASM`      | `ON`    | Use hand-written assembly cores (x86/x86-64/ARM32)       |
-| `MARCH_NATIVE` | `OFF`   | Build with `-march=native` for a single specific machine |
-| `ENABLE_LTO`   | `ON`    | Link-time optimization for Release builds                |
-| `BUILD_TESTS`  | `ON`    | Build the hash regression tests                          |
+| Option         | Default | Description                                                                                                                         |
+| -------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `USE_ASM`      | `ON`    | Use hand-written assembly cores (x86/x86-64/ARM32)                                                                                  |
+| `MARCH_NATIVE` | `OFF`   | Build with `-march=native` for a single specific machine                                                                            |
+| `ENABLE_LTO`   | `ON`    | Link-time optimization for Release builds                                                                                           |
+| `BUILD_TESTS`  | `ON`    | Build the hash regression tests                                                                                                     |
 | `STATIC_BUILD` | `OFF`   | Statically link deps for a dependency-free distributable (used by release CI; on Windows produces a single DLL-free `cpuminer.exe`) |
-| `WERROR`       | `OFF`   | Treat warnings as errors (CI gate)                       |
+| `WERROR`       | `OFF`   | Treat warnings as errors (CI gate)                                                                                                  |
 
 Example, tuned for the local machine:
 
@@ -441,16 +427,14 @@ cmake --build build -j
 
 On x86-64 Linux and Windows, the miner detects CPU capabilities at runtime:
 
-* SSE2 → 1-way scrypt
-* AVX  → 3-way scrypt
-* AVX2 → 6-way scrypt
+- SSE2 → 1-way scrypt
+- AVX → 3-way scrypt
+- AVX2 → 6-way scrypt
 
 No manual flags are needed to choose between them. macOS and ARM64 always use
 the portable C implementation.
 
-
-Usage
-=====
+# Usage
 
 After a **release download**, run the binary from the extracted folder (add
 `.\` on Windows). Only **build-from-source** workflows use `build/cpuminer`:
@@ -472,28 +456,28 @@ After a **release download**, run the binary from the extracted folder (add
 Run `cpuminer --help` / `cpuminer.exe --help` for the full list of options.
 Common ones:
 
-* `-o, --url` — primary pool URL (`stratum+tcp://...`)
-* `--backup-url` — comma-separated backup pools (automatic failover)
-* `-u, --user` / `-p, --pass` — wallet/worker credentials
-* `-t, --threads` — mining threads (`0` = auto from CPU topology and L3 cache)
-* `--setup` — interactive wizard writes the default config file (see below)
-* `--tune` — print recommended thread count at startup
-* `--status-interval` — seconds between status summaries (hashrate, shares, temp)
-* `--profile dedicated` — higher CPU priority for dedicated mining rigs
-* `--log-file FILE` — also append plain-text logs to FILE (headless/service)
-* `--selftest` — verify the scrypt core against the golden vector, then exit (0 = OK)
-* `-B, --background` — detach and run in the background
-* `-c, --config` — JSON config file (see `cpuminer-conf.json`)
+- `-o, --url` — primary pool URL (`stratum+tcp://...`)
+- `--backup-url` — comma-separated backup pools (automatic failover)
+- `-u, --user` / `-p, --pass` — wallet/worker credentials
+- `-t, --threads` — mining threads (`0` = auto from CPU topology and L3 cache)
+- `--setup` — interactive wizard writes the default config file (see below)
+- `--tune` — print recommended thread count at startup
+- `--status-interval` — seconds between status summaries (hashrate, shares, temp)
+- `--profile dedicated` — higher CPU priority for dedicated mining rigs
+- `--log-file FILE` — also append plain-text logs to FILE (headless/service)
+- `--selftest` — verify the scrypt core against the golden vector, then exit (0 = OK)
+- `-B, --background` — detach and run in the background
+- `-c, --config` — JSON config file (see `cpuminer-conf.json`)
 
 Hashrate is reported in **hashes per minute (H/m)** in logs and the status
 panel (`HPM`, `HPM_AVG60`, `HPM_AVG900` in the `summary` API).
 
 ### Config file location
 
-| Platform | Default path |
-|----------|--------------|
-| Linux / macOS / FreeBSD | `~/.cpuminer/cpuminer-conf.json` |
-| Windows | `%APPDATA%\cpuminer\cpuminer-conf.json` |
+| Platform                | Default path                            |
+| ----------------------- | --------------------------------------- |
+| Linux / macOS / FreeBSD | `~/.cpuminer/cpuminer-conf.json`        |
+| Windows                 | `%APPDATA%\cpuminer\cpuminer-conf.json` |
 
 If no file exists at that path, the miner looks for `cpuminer-conf.json` next
 to the executable. Use `--setup` or `-c` to point at a custom file.
@@ -503,12 +487,12 @@ to the executable. Use `--setup` or `-c` to point at a custom file.
 Default bind: `127.0.0.1:4048` (override with `-b` / `"api-bind"` in config).
 Send a command name on one line; the miner replies and closes the connection.
 
-| Command | Format | Hashrate fields |
-|---------|--------|-----------------|
-| `summary` | `KEY=value;...` | `HPM`, `HPM_AVG60`, `HPM_AVG900` (hashes per **minute**) |
-| `json` | JSON object | `hashrate_hps`, `hashrate_ema_60s`, `hashrate_ema_900s` (per **second**) |
-| `health` | `KEY=value;...` | pool/accept/temp probe |
-| `metrics` | Prometheus text | `verium_hashrate_hps`, `verium_hashrate_ema60`, … |
+| Command   | Format          | Hashrate fields                                                          |
+| --------- | --------------- | ------------------------------------------------------------------------ |
+| `summary` | `KEY=value;...` | `HPM`, `HPM_AVG60`, `HPM_AVG900` (hashes per **minute**)                 |
+| `json`    | JSON object     | `hashrate_hps`, `hashrate_ema_60s`, `hashrate_ema_900s` (per **second**) |
+| `health`  | `KEY=value;...` | pool/accept/temp probe                                                   |
+| `metrics` | Prometheus text | `verium_hashrate_hps`, `verium_hashrate_ema60`, …                        |
 
 Examples:
 
@@ -526,26 +510,22 @@ Use `--proxy`. To use a SOCKS proxy add a `socks4://` or `socks5://` prefix to
 the host. With no prefix an HTTP proxy is assumed; when `--proxy` is not used,
 the `http_proxy` / `all_proxy` environment variables are honored.
 
+# Troubleshooting
 
-Troubleshooting
-===============
-
-| Symptom | Fix |
-|---------|-----|
+| Symptom                                                                | Fix                                                                                                                                                                                                                                                                                                         |
+| ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Antivirus flags `cpuminer.exe`** (e.g. `Trojan:Win32/Bearfoos.A!ml`) | A heuristic false positive common to all CPU miners. Verify with `SHA256SUMS`, then add an exclusion for the miner folder, or submit a [false-positive report to Microsoft](https://www.microsoft.com/en-us/wdsi/filesubmission). Signed releases (coming) will reduce this. See the Windows section above. |
-| **`error while loading shared libraries: libcurl…` (Linux)** | Install the runtime: `sudo apt-get install -y libcurl4`. Prebuilt Linux binaries link libgcc/libstdc++ statically but use the system libcurl. |
-| **`scrypt buffer allocation failed` / out of memory** | Each thread needs ~1 GB for the N=1048576 scratchpad. Lower `-t` (threads) or add RAM/swap. Use `--tune` to see the recommended thread count. |
-| **Low/zero hashrate on a shared machine** | Use the default `background` profile; reserve a core for the OS by lowering `-t`. For mining-only rigs use `--profile dedicated`. |
-| **Large pages not used (slower hashrate)** | On Linux, grant locked-memory limits (the systemd unit sets `LimitMEMLOCK=infinity`) and enable hugepages. On Windows, run elevated once so the "Lock pages in memory" privilege can be acquired. |
-| **All shares rejected** | Check the wallet address (`user`) and that the pool URL/port are correct; watch for "High reject rate" warnings in the log. |
-| **macOS: “Verium Miner is damaged”** | Not corrupted — macOS blocked an unsigned download. Use **`Verium Miner.command`**, or run `xattr -dr com.apple.quarantine /path/to/extracted/folder`, then right-click the app → **Open** once. |
-| **Change thread count after setup** | Double-click **`Change Settings.command`** (macOS), run `./cpuminer --setup`, edit `"threads"` in `~/.cpuminer/cpuminer-conf.json` (`0` = auto), or pass `-t N` for a one-off override. |
+| **`error while loading shared libraries: libcurl…` (Linux)**           | Install the runtime: `sudo apt-get install -y libcurl4`. Prebuilt Linux binaries link libgcc/libstdc++ statically but use the system libcurl.                                                                                                                                                               |
+| **`scrypt buffer allocation failed` / out of memory**                  | Each thread needs ~1 GB for the N=1048576 scratchpad. Lower `-t` (threads) or add RAM/swap. Use `--tune` to see the recommended thread count.                                                                                                                                                               |
+| **Low/zero hashrate on a shared machine**                              | Use the default `background` profile; reserve a core for the OS by lowering `-t`. For mining-only rigs use `--profile dedicated`.                                                                                                                                                                           |
+| **Large pages not used (slower hashrate)**                             | On Linux, grant locked-memory limits (the systemd unit sets `LimitMEMLOCK=infinity`) and enable hugepages. On Windows, run elevated once so the "Lock pages in memory" privilege can be acquired.                                                                                                           |
+| **All shares rejected**                                                | Check the wallet address (`user`) and that the pool URL/port are correct; watch for "High reject rate" warnings in the log.                                                                                                                                                                                 |
+| **macOS: “Verium Miner is damaged”**                                   | Not corrupted — macOS blocked an unsigned download. Use **`Verium Miner.command`**, or run `xattr -dr com.apple.quarantine /path/to/extracted/folder`, then right-click the app → **Open** once.                                                                                                            |
+| **Change thread count after setup**                                    | Double-click **`Change Settings.command`** (macOS), run `./cpuminer --setup`, edit `"threads"` in `~/.cpuminer/cpuminer-conf.json` (`0` = auto), or pass `-t N` for a one-off override.                                                                                                                     |
 
 For headless setup details and more, see [`docs/HEADLESS.md`](docs/HEADLESS.md).
 
-
-Hash regression tests
-======================
+# Hash regression tests
 
 scrypt² output is consensus-bound and must never change. The test harness
 links the real hashing core and verifies determinism, non-null output, and a
@@ -568,9 +548,7 @@ cpuminer --cputest          # release binary in PATH or current directory
 To lock the golden vector for your build, run `test_hash` once, copy the value
 from its `RECORD:` line into [`tests/golden.h`](tests/golden.h), and rebuild.
 
-
-Fork lineage
-============
+# Fork lineage
 
 ```
 tpruvot/cpuminer-multi
@@ -586,23 +564,18 @@ git remote add upstream https://github.com/fireworm71/veriumMiner.git
 git fetch upstream
 ```
 
-
-Security
-========
+# Security
 
 To report a vulnerability, see [`SECURITY.md`](SECURITY.md). Please do **not**
 open public issues for security problems. Always verify downloads against the
 published `SHA256SUMS`.
 
-
-Contributing
-============
+# Contributing
 
 Contributions are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the
 build/test workflow, coding conventions, and the rule that scrypt² output is
 consensus-bound and must never change without golden-vector validation.
 
+# License
 
-License
-=======
 GPLv2. See `COPYING` for details.
