@@ -1,6 +1,6 @@
 # Raspberry Pi and other AArch64 SBCs
 
-Community-tested on **Raspberry Pi 5** (Verium Miner 1.4.6, arm64 build from source).
+Community-tested on **Raspberry Pi 5** (Verium Miner 1.4.7, arm64 build from source).
 
 ## Expected performance
 

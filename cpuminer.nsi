@@ -1,6 +1,6 @@
 ﻿; Verium Miner - Windows installer (NSIS 3, Unicode)
 ;
-; Build:  makensis -DMINER_VERSION=1.4.6 cpuminer.nsi
+; Build:  makensis -DMINER_VERSION=1.4.7 cpuminer.nsi
 ; Expects, in the same directory as this script:
 ;   cpuminer.exe          (static MinGW build, no extra DLLs)
 ;   cpuminer-conf.json    (example config)
