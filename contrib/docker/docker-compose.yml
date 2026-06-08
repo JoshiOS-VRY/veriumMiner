@@ -1,0 +1,29 @@
+# Verium Miner — Docker Compose (Raspberry Pi / headless SBC)
+#
+# Build on the Pi (or any arm64 host):
+#   docker build -t veriumminer:local .
+#
+# Set pool credentials via a .env file or Portainer environment variables:
+#   MINER_POOL_URL=stratum+tcp://mine.vericonomy.com:3333
+#   MINER_WALLET=VYourAddress.worker1
+#   MINER_PASSWORD=x
+#   MINER_THREADS=1
+#
+# Pi 5 community testing: use 1 thread (-t 1). Extra threads do not increase
+# hashrate (~150 H/m) and risk OOM (128 MB scrypt scratchpad per thread).
+
+services:
+  verium-miner:
+    image: veriumminer:local
+    container_name: verium_miner
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+    command: >
+      -o ${MINER_POOL_URL}
+      -u ${MINER_WALLET}
+      -p ${MINER_PASSWORD}
+      -t ${MINER_THREADS:-1}

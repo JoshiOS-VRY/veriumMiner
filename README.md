@@ -106,7 +106,8 @@ Get-FileHash .\cpuminer.exe -Algorithm SHA256
 > and will be enabled once certificates are provisioned. Until then, verify with
 > `SHA256SUMS` and see [Troubleshooting](#troubleshooting) for antivirus notes.
 >
-> Docker: `docker run --rm ghcr.io/joshios-vry/veriumminer:1.4.6 -o stratum+tcp://mine.vericonomy.com:3333 -u VYourAddress.worker1 -p x`
+> Docker: `docker run --rm ghcr.io/joshios-vry/veriumminer:1.4.6 -o stratum+tcp://mine.vericonomy.com:3333 -u VYourAddress.worker1 -p x -t 1`
+> Raspberry Pi / SBC: see [docs/RASPBERRY_PI.md](docs/RASPBERRY_PI.md) (use `-t 1`; `.dockerignore` required for local `docker build`).
 
 ## Mining modes (pool and solo)
 
@@ -305,8 +306,10 @@ Ready-to-use service definitions ship in [`contrib/`](contrib):
 
 Use `--profile dedicated` on mining-only machines for higher CPU priority, or
 the default `background` profile on shared/desktop machines to stay responsive.
-A full walkthrough is in [`docs/HEADLESS.md`](docs/HEADLESS.md). For solo mining
-on a headless node, also see [`docs/SOLO_MINING.md`](docs/SOLO_MINING.md).
+A full walkthrough is in [`docs/HEADLESS.md`](docs/HEADLESS.md). **Raspberry Pi**
+community notes (Docker Compose, `-t 1`, resource limits) are in
+[`docs/RASPBERRY_PI.md`](docs/RASPBERRY_PI.md). For solo mining on a headless
+node, also see [`docs/SOLO_MINING.md`](docs/SOLO_MINING.md).
 
 **24/7 operations:** use `--log-file`, enable a service unit (systemd / launchd /
 Scheduled Task), and probe health with `printf 'health\n' | nc -w 2 127.0.0.1 4048`.
@@ -437,10 +440,15 @@ cmake --build build -j$(sysctl -n hw.ncpu)
 
 ### Docker
 
+The repo includes `.dockerignore` so a host `build/` tree is not copied into the
+image (stale `CMakeCache.txt` breaks in-container builds).
+
 ```sh
 docker build -t veriumminer .
-docker run --rm veriumminer -o stratum+tcp://POOL:PORT -u WALLET.WORKER -p x
+docker run --rm veriumminer -o stratum+tcp://POOL:PORT -u WALLET.WORKER -p x -t 1
 ```
+
+Compose template for Pi / Portainer: [`contrib/docker/docker-compose.yml`](contrib/docker/docker-compose.yml).
 
 # Build options
 

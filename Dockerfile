@@ -1,7 +1,10 @@
 # veriumMiner - multi-stage CMake build
 #
 # Build:  docker build -t veriumminer .
-# Run:    docker run --rm veriumminer -o stratum+tcp://pool:port -u WALLET.WORKER -p x
+# Run:    docker run --rm veriumminer -o stratum+tcp://pool:port -u WALLET.WORKER -p x -t 1
+#
+# Requires .dockerignore (excludes host build/) so CMake does not ingest a stale
+# CMakeCache.txt from a local compile. See docs/RASPBERRY_PI.md for Pi / Compose.
 #
 FROM debian:bookworm-slim AS build
 

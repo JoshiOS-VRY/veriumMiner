@@ -42,7 +42,9 @@ unattended runs, enable file logging and pick a profile:
 - `profile`: `background` (default, keeps the machine responsive) or
   `dedicated` (higher CPU priority for mining-only rigs).
 - `threads`: `0` auto-selects from CPU topology, cache, and RAM. Each thread
-  needs ~1 GB for the scrypt scratchpad.
+  needs ~128 MB on ARM / non-AVX2 builds, or up to ~768 MB on x86_64 with AVX2
+  multi-lane ROM. On Raspberry Pi and similar SBCs, use `1` — see
+  [RASPBERRY_PI.md](RASPBERRY_PI.md).
 
 ## 3. Run it as a service
 
@@ -110,8 +112,11 @@ an immediate exit. This makes service restarts safe.
   thread count for your CPU/RAM.
 - Enable huge/large pages for a throughput boost. On Linux the systemd unit
   grants `LimitMEMLOCK=infinity`; also configure hugepages at the OS level.
-- On big.LITTLE / hybrid CPUs, workers are pinned to performance cores
-  automatically.
+- On Windows hybrid Intel CPUs, workers are pinned to performance (P) cores.
+  Homogeneous Linux and AArch64 SBCs report physical core count only.
+- **Docker:** use the repo `.dockerignore` before `docker build`; see
+  [RASPBERRY_PI.md](RASPBERRY_PI.md) for Compose and Pi limits (`-t 1`,
+  `cpus: 1.0`, `memory: 256M`).
 
 ## 24/7 checklist
 

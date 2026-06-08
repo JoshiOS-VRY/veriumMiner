@@ -99,16 +99,19 @@ static void topo_linux_probe(void)
 			if (p && !siblings)
 				siblings = atoi(p + 1);
 		} else if (line[0] == '\n' && cur >= 0) {
+			int p = phys_id >= 0 ? phys_id : 0;
+			/* ARM (e.g. Raspberry Pi) often omits core id; use processor index. */
+			int c = core_id >= 0 ? core_id : cur;
 			int i, found = 0;
 			for (i = 0; i < ncores; i++) {
-				if (cores[i].p == phys_id && cores[i].c == core_id) {
+				if (cores[i].p == p && cores[i].c == c) {
 					found = 1;
 					break;
 				}
 			}
 			if (!found && ncores < 512) {
-				cores[ncores].p = phys_id;
-				cores[ncores].c = core_id;
+				cores[ncores].p = p;
+				cores[ncores].c = c;
 				cores[ncores].cpu = cur;
 				ncores++;
 			}
@@ -116,6 +119,25 @@ static void topo_linux_probe(void)
 		}
 	}
 	fclose(f);
+
+	/* Last processor block may not end with a blank line (common on ARM). */
+	if (cur >= 0 && ncores < 512) {
+		int p = phys_id >= 0 ? phys_id : 0;
+		int c = core_id >= 0 ? core_id : cur;
+		int i, found = 0;
+		for (i = 0; i < ncores; i++) {
+			if (cores[i].p == p && cores[i].c == c) {
+				found = 1;
+				break;
+			}
+		}
+		if (!found) {
+			cores[ncores].p = p;
+			cores[ncores].c = c;
+			cores[ncores].cpu = cur;
+			ncores++;
+		}
+	}
 
 	g_topo.physical_cpus = ncores > 0 ? ncores : g_topo.logical_cpus;
 	if (siblings > 0 && g_topo.physical_cpus == g_topo.logical_cpus)
@@ -162,7 +184,7 @@ static void topo_linux_probe(void)
 		if (avail_kb)
 			g_topo.avail_ram_bytes = avail_kb * 1024ULL;
 	}
-	g_topo.performance_cpus = g_topo.physical_cpus;
+	/* performance_cpus: hybrid P-core count (Windows probe); 0 on homogeneous Linux. */
 }
 #elif defined(WIN32)
 /* CpuSet API (Win10+); resolved at runtime for older SDKs. */
@@ -415,6 +437,15 @@ int topo_recommended_threads(size_t scratchpad_bytes)
 	by_bw = perf_phys;
 	if (by_bw > 12)
 		by_bw = 12;
+
+#if defined(__aarch64__) || defined(__arm64__)
+	/* AArch64 SBCs (e.g. Raspberry Pi): shared DRAM bus — one worker saturates it. */
+	if (scratchpad_bytes <= 136 * 1024 * 1024
+			&& phys <= 8
+			&& g_topo.logical_cpus == phys
+			&& by_bw > 1)
+		by_bw = 1;
+#endif
 
 	{
 		int rec = by_bw;

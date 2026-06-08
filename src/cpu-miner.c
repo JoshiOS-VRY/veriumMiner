@@ -3011,10 +3011,17 @@ int main(int argc, char *argv[]) {
 		applog(LOG_NOTICE,
 			"Scrypt scratchpad: %.0f MB per thread, ~%.0f MB for %d thread(s) (N=%d)",
 			sp_mb, sp_mb * opt_n_threads, opt_n_threads, opt_scrypt_n);
-		if (tp && tp->performance_cpus > 0)
-			applog(LOG_NOTICE,
-				"Topology: %d logical, %d packages, %d performance (P) CPUs — workers pinned to P-cores",
-				tp->logical_cpus, tp->physical_cpus, tp->performance_cpus);
+		if (tp) {
+			if (tp->performance_cpus > 0
+					&& tp->performance_cpus != tp->physical_cpus)
+				applog(LOG_NOTICE,
+					"Topology: %d logical, %d physical, %d performance (P) CPUs — workers pinned to P-cores",
+					tp->logical_cpus, tp->physical_cpus, tp->performance_cpus);
+			else
+				applog(LOG_NOTICE,
+					"Topology: %d logical, %d physical core(s)",
+					tp->logical_cpus, tp->physical_cpus);
+		}
 	}
 
 	if (opt_tune) {

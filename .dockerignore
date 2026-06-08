@@ -1,0 +1,7 @@
+# Local CMake output — absolute paths in CMakeCache.txt break in-container builds.
+build/
+build-werror/
+build-*/
+
+.git/
+.github/
