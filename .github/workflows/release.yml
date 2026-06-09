@@ -61,7 +61,8 @@ jobs:
         run: bash contrib/packaging/package.sh "${{ matrix.runner == 'ubuntu-24.04-arm' && 'linux-arm64' || 'linux-x86_64' }}" build/cpuminer
       - uses: actions/upload-artifact@v4
         with:
-          name: dist-linux-${{ matrix.arch }}
+          # Suffix attempt so re-runs do not mix artifacts from prior attempts.
+          name: dist-linux-${{ matrix.arch }}-attempt-${{ github.run_attempt }}
           path: dist/*
 
   # -------------------------------------------------------------------------
@@ -119,7 +120,7 @@ jobs:
           codesign --verify --verbose "$APP"
       - uses: actions/upload-artifact@v4
         with:
-          name: dist-macos-${{ matrix.arch }}
+          name: dist-macos-${{ matrix.arch }}-attempt-${{ github.run_attempt }}
           path: dist/*
 
   # -------------------------------------------------------------------------
@@ -191,7 +192,7 @@ jobs:
           if [ -f veriumminer-setup.exe ]; then cp veriumminer-setup.exe dist/; fi
       - uses: actions/upload-artifact@v4
         with:
-          name: dist-windows-x86_64
+          name: dist-windows-x86_64-attempt-${{ github.run_attempt }}
           path: dist/*
 
   # -------------------------------------------------------------------------
@@ -204,15 +205,45 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          # Only the current workflow attempt — download-artifact@v4 otherwise
+          # merges artifacts from every prior re-run of this workflow run id.
+          pattern: dist-*-attempt-${{ github.run_attempt }}
+          merge-multiple: true
           path: artifacts
       - name: Collect and checksum
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
+          VERSION="${RELEASE_TAG#v}"
           mkdir -p release
-          find artifacts -type f -exec cp {} release/ \;
+          find artifacts -type f \( \
+            -name "veriumminer-${VERSION}-*" \
+            -o -name "veriumminer-setup.exe" \
+          \) -exec cp {} release/ \;
+          if [ -z "$(ls -A release)" ]; then
+            echo "ERROR: no release files matched veriumminer-${VERSION}-*" >&2
+            find artifacts -type f | sort
+            exit 1
+          fi
           cd release
           sha256sum * > SHA256SUMS
           echo "Release contents:"; ls -la
           cat SHA256SUMS
+      - name: Clear existing release assets (re-run safe)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.id' 2>/dev/null || true)"
+          if [ -z "$release_id" ] || [ "$release_id" = "null" ]; then
+            echo "No existing release for ${RELEASE_TAG}; nothing to clear."
+            exit 0
+          fi
+          gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets" --paginate -q '.[].id' | \
+            while read -r asset_id; do
+              echo "Deleting release asset ${asset_id}"
+              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}"
+            done
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
