@@ -41,9 +41,9 @@ unattended runs, enable file logging and pick a profile:
 
 - `profile`: `background` (default, keeps the machine responsive) or
   `dedicated` (higher CPU priority for mining-only rigs).
-- `threads`: `0` auto-selects from CPU topology, cache, and RAM. Each thread
-  needs ~128 MB on ARM / non-AVX2 builds, or up to ~768 MB on x86_64 with AVX2
-  multi-lane ROM. On Raspberry Pi and similar SBCs, use `1` — see
+- `threads`: `0` auto-selects from CPU topology, cache, and RAM. Each default
+  thread needs ~384 MB on ARM64 (NEON 3-way) or up to ~768 MB on x86_64 with
+  AVX2 multi-lane ROM. On Raspberry Pi and similar SBCs, use `1` — see
   [RASPBERRY_PI.md](RASPBERRY_PI.md).
 
 ## 3. Run it as a service

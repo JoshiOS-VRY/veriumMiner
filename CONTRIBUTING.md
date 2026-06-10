@@ -17,7 +17,8 @@ New SIMD/NEON cores must be validated against the portable C core on golden
 vectors **before** being enabled by default. The runtime gate is
 `cpuminer --selftest`, which hashes the locked vector with the *active* compiled
 core and exits non-zero on any mismatch; CI and the release pipeline run it on
-every build, and a new core must pass it on real hardware before merge.
+every build. On aarch64, `ctest` also runs `scrypt_3way_equiv` to verify each
+3-way lane matches the 1-way core.
 
 ## Building
 

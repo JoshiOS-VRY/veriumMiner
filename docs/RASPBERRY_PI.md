@@ -4,19 +4,19 @@ Community-tested on **Raspberry Pi 5** (Verium Miner 1.4.7, arm64 build from sou
 
 ## Expected performance
 
-| Metric | Pi 5 (1 thread) |
-|--------|-----------------|
-| Hashrate | ~140–150 H/m |
-| Scrypt scratchpad | 128 MB per thread (no AVX2 multi-lane ROM) |
+| Metric | Pi 5 (1 thread, NEON 3-way) |
+|--------|-----------------------------|
+| Hashrate | Benchmark on device — DRAM bus often caps gain vs 1-way |
+| Scrypt scratchpad | ~384 MB per default thread (NEON 3-way) |
 | Temperature | ~50 °C with light airflow |
 | Pool shares | Accepted at min difficulty 1e-8 |
 
 Extra mining threads **do not** increase hashrate on Pi 5: the shared DRAM bus
-saturates with a single scrypt worker. Three threads produced the same ~145 H/m
-as one thread, with a bandwidth oversubscription warning.
+saturates with a single scrypt worker. Auto threads (`-t 0`) recommend **1**
+on low-core AArch64 SBCs when scratchpad exceeds ~200 MB.
 
-Use **`-t 1`** (or `"threads": 1` in config). Auto threads (`-t 0`) also
-recommends 1 on AArch64 SBCs.
+Use **`-t 1`** (or `"threads": 1` in config). If NEON 3-way does not beat the
+portable core on your board, stay at one thread regardless.
 
 ## Build from source
 
@@ -25,8 +25,10 @@ git clone https://github.com/JoshiOS-VRY/veriumMiner.git
 cd veriumMiner
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j "$(nproc)"
+./build/cpuminer -V          # expect "ARMV8 NEON"
 ./build/cpuminer --selftest
 ./build/cpuminer --benchmark -t 1
+ctest --test-dir build --output-on-failure
 ```
 
 ## Docker
@@ -65,8 +67,7 @@ MINER_THREADS=1
 Resource limits used in community testing:
 
 - **cpus:** `1.0` — matches the memory-bus bottleneck
-- **memory:** `256M` — enough for one 128 MB scratchpad plus overhead; prevents
-  OOM if someone raises thread count later
+- **memory:** `512M` — enough for one ~384 MB NEON scratchpad plus overhead
 
 ## Pool difficulty
 

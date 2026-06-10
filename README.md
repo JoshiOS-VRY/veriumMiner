@@ -159,8 +159,9 @@ operations:
 - **Monitoring API** — `summary`, `json`, `health`, and Prometheus-style
   `metrics` on port 4048
 - **Setup wizard** — `--setup` writes a starter `cpuminer-conf.json`
-- **Portable macOS / ARM64** — Apple Silicon and Linux ARM64 use the validated C
-  scrypt core (assembly is x86/x86-64 and 32-bit ARM only)
+- **ARM64 NEON 3-way scrypt** — Apple Silicon and Linux ARM64 use FireWorm71's
+  validated NEON core (~384 MB/thread, 3 hashes per scan). Intel Macs use x86-64
+  assembly when enabled; Apple Silicon uses C intrinsics (not GAS `.S` files).
 
 See [`docs/AUDIT_IMPLEMENTATION.md`](docs/AUDIT_IMPLEMENTATION.md) for the full
 audit-to-code mapping.
@@ -325,9 +326,9 @@ pool connection, and exits — so service restarts are graceful.
 | Platform            | CI job                   | Notes                               |
 | ------------------- | ------------------------ | ----------------------------------- |
 | Linux x86_64        | Linux x86_64 (GCC/Clang) | SSE2/AVX/AVX2 assembly when enabled |
-| Linux ARM64         | Linux ARM64 (GCC)        | Portable C core                     |
-| macOS Apple Silicon | macOS Apple Silicon      | Portable C core (`macos-14`)        |
-| macOS Intel         | macOS Intel              | Portable C core (`macos-15-intel`)  |
+| Linux ARM64         | Linux ARM64 (GCC)        | NEON 3-way (~384 MB/thread)         |
+| macOS Apple Silicon | macOS Apple Silicon      | NEON 3-way (`macos-14`)             |
+| macOS Intel         | macOS Intel              | x86-64 AVX2 assembly (`macos-15-intel`) |
 | Windows x86_64      | windows-mingw64          | MSYS2 / MinGW-w64                   |
 | FreeBSD x86_64      | freebsd-x86_64           | VM-based CI                         |
 
@@ -373,10 +374,10 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release \
 cmake --build build -j
 ```
 
-This builds natively on both Apple Silicon (arm64) and Intel (x86_64). macOS
-uses the portable C scrypt cores on all Macs (assembly is disabled on Apple
-platforms). Runtime SIMD selection (SSE2/AVX/AVX2) applies on Linux and
-Windows x86-64 builds only.
+This builds natively on both Apple Silicon (arm64) and Intel (x86_64). Apple
+Silicon uses the **NEON 3-way** scrypt core (~384 MB per thread). Intel Macs
+use **x86-64 assembly** (AVX/AVX2) when the CPU supports it. Runtime SIMD
+selection on Linux and Windows x86-64 follows the same AVX/AVX2 ladder.
 
 ### Windows (MSYS2 / MinGW-w64)
 
@@ -472,14 +473,16 @@ cmake --build build -j
 
 ### CPU feature selection
 
-On x86-64 Linux and Windows, the miner detects CPU capabilities at runtime:
+On x86-64 Linux, Windows, and Intel macOS, the miner detects CPU capabilities at runtime:
 
 - SSE2 → 1-way scrypt
 - AVX → 3-way scrypt
 - AVX2 → 6-way scrypt
 
-No manual flags are needed to choose between them. macOS and ARM64 always use
-the portable C implementation.
+On **ARM64** (Apple Silicon, Linux ARM64), the build uses the **NEON 3-way**
+core (3 hashes per scan iteration, ~384 MB scratchpad per thread). Optional
+`-1 N` / `--oneways=N` adds extra 1-way threads mixed with default workers.
+Use `cpuminer -V` to confirm **ARMV8 NEON** on aarch64.
 
 # Usage
 

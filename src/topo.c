@@ -445,6 +445,12 @@ int topo_recommended_threads(size_t scratchpad_bytes)
 			&& g_topo.logical_cpus == phys
 			&& by_bw > 1)
 		by_bw = 1;
+	/* NEON 3-way (~384 MB/thread): same bandwidth limit on low-core SBCs. */
+	if (scratchpad_bytes > 200 * 1024 * 1024
+			&& phys <= 8
+			&& g_topo.logical_cpus == phys
+			&& by_bw > 1)
+		by_bw = 1;
 #endif
 
 	{

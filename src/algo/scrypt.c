@@ -424,6 +424,15 @@ void scrypt_core(uint32_t *X, uint32_t *V, int N);
 void scrypt_core_3way(uint32_t *X, uint32_t *V, int N);
 #endif
 
+#elif defined(__aarch64__)
+
+#undef HAVE_SHA256_4WAY
+#define SCRYPT_MAX_WAYS 3
+#define HAVE_SCRYPT_3WAY 1
+#define scrypt_best_throughput() 3
+void scrypt_core(uint32_t *X, uint32_t *V, int N);
+void scrypt_core_3way(uint32_t *X, uint32_t *V, int N);
+
 #else
 
 static inline void xor_salsa8(uint32_t B[16], const uint32_t Bx[16])
@@ -539,9 +548,21 @@ int scrypt_rom_lane_count(void)
 #endif
 }
 
+int scrypt_rom_lane_count_for(int force_throughput)
+{
+	if (force_throughput == 1)
+		return 1;
+	return scrypt_rom_lane_count();
+}
+
 size_t scrypt_scratchpad_bytes(int N)
 {
 	return (size_t)N * (size_t)scrypt_rom_lane_count() * 128 + 63;
+}
+
+size_t scrypt_scratchpad_bytes_for(int N, int force_throughput)
+{
+	return (size_t)N * (size_t)scrypt_rom_lane_count_for(force_throughput) * 128 + 63;
 }
 
 /*
@@ -559,7 +580,12 @@ int scrypt_large_pages_active(void)
 
 unsigned char *scrypt_buffer_alloc(int N)
 {
-	size_t size = scrypt_scratchpad_bytes(N);
+	return scrypt_buffer_alloc_for(N, -1);
+}
+
+unsigned char *scrypt_buffer_alloc_for(int N, int force_throughput)
+{
+	size_t size = scrypt_scratchpad_bytes_for(N, force_throughput);
 
 #if defined(WIN32)
 	{
@@ -824,7 +850,7 @@ static void scrypt_1024_1_1_256_24way(const uint32_t *input,
  * shipped unvalidated.
  */
 extern int scanhash_scrypt(int thr_id, struct work *work, uint32_t max_nonce, uint64_t *hashes_done,
-	unsigned char *scratchbuf, uint32_t N)
+	unsigned char *scratchbuf, uint32_t N, int force_throughput)
 {
 	uint32_t *pdata = work->data;
 	uint32_t *ptarget = work->target;
@@ -834,6 +860,9 @@ extern int scanhash_scrypt(int thr_id, struct work *work, uint32_t max_nonce, ui
 	const uint32_t Htarg = ptarget[7];
 	int throughput = scrypt_best_throughput();
 	int i, j;
+
+	if (force_throughput > 0)
+		throughput = force_throughput;
 
 #ifdef HAVE_SHA256_4WAY
 	if (sha256_use_4way())
@@ -914,3 +943,59 @@ void scrypthash(void *output, const void *input, uint32_t N)
 
 	scrypt_buffer_free(scratchbuf, (int)N);
 }
+
+#if defined(HAVE_SCRYPT_3WAY)
+
+/*
+ * Verify each lane of the 3-way core matches the 1-way core (consensus safety).
+ * Returns 0 on pass, number of failures otherwise.
+ */
+int scrypt_3way_equiv_selftest(void)
+{
+	const uint32_t N = 1048576;
+	unsigned char *scratchbuf = scrypt_buffer_alloc((int)N);
+	uint32_t midstate[8];
+	uint32_t in3[60], out1[8], out3[8 * 3];
+	uint32_t base_nonces[] = { 0, 1, 42, 0xffff };
+	int failures = 0;
+	size_t v, lane;
+
+	if (!scratchbuf)
+		return 1;
+
+	for (v = 0; v < sizeof(base_nonces) / sizeof(base_nonces[0]); v++) {
+		uint32_t n0 = base_nonces[v];
+
+		memset(in3, 0, sizeof(in3));
+		for (lane = 0; lane < 3; lane++)
+			in3[lane * 20 + 19] = n0 + (uint32_t)lane;
+
+		for (lane = 0; lane < 3; lane++) {
+			uint32_t in1[20];
+
+			memcpy(in1, &in3[lane * 20], sizeof(in1));
+			sha256_init(midstate);
+			sha256_transform(midstate, in1, 0);
+			scrypt_1024_1_1_256(in1, out1, midstate, scratchbuf, (int)N);
+			if (lane == 0) {
+				sha256_init(midstate);
+				sha256_transform(midstate, in3, 0);
+				scrypt_1024_1_1_256_3way(in3, out3, midstate, scratchbuf, (int)N);
+			}
+			if (memcmp(out1, out3 + lane * 8, 32) != 0)
+				failures++;
+		}
+	}
+
+	scrypt_buffer_free(scratchbuf, (int)N);
+	return failures;
+}
+
+#else
+
+int scrypt_3way_equiv_selftest(void)
+{
+	return 0;
+}
+
+#endif

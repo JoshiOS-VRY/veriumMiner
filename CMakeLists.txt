@@ -25,6 +25,7 @@ if(WIN32 AND NOT MSVC)
 endif()
 option(STATIC_BUILD   "Statically link runtime/dependencies for distribution" ${_VRM_STATIC_BUILD_DEFAULT})
 option(WERROR         "Treat compiler warnings as errors (CI gate)"            OFF)
+option(ENABLE_ARM_CRYPTO "Experimental ARMv8 SHA2 crypto for PBKDF2 on aarch64" OFF)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type" FORCE)
@@ -62,16 +63,14 @@ message(STATUS "veriumMiner: target arch '${CMAKE_SYSTEM_PROCESSOR}' "
         "(x86_64=${VRM_ARCH_X86_64} x86=${VRM_ARCH_X86} "
         "aarch64=${VRM_ARCH_AARCH64} arm=${VRM_ARCH_ARM})")
 
-# Assembly is only available for x86, x86-64 and 32-bit ARM. aarch64 (incl.
-# Apple Silicon) and everything else use the portable C cores.
-#
-# Apple is excluded: the GAS cores use bare (un-prefixed) symbol names that do
-# not link under Mach-O, and the legacy "nomacro.pl" Clang shim has been
-# removed. macOS therefore uses the portable C cores on both arm64 and x86_64.
+# Assembly: x86/x86-64/32-bit ARM use GAS .S files. aarch64 uses scrypt-aarch64-neon.c.
+# Intel macOS (x86_64) may use x86-64 assembly; Apple Silicon arm64 does not link .S scrypt.
 set(VRM_USE_ASM FALSE)
-if(USE_ASM AND NOT APPLE AND (VRM_ARCH_X86_64 OR VRM_ARCH_X86 OR VRM_ARCH_ARM))
-    set(VRM_USE_ASM TRUE)
-    enable_language(ASM)
+if(USE_ASM AND (VRM_ARCH_X86_64 OR VRM_ARCH_X86 OR VRM_ARCH_ARM))
+    if(NOT APPLE OR VRM_ARCH_X86_64)
+        set(VRM_USE_ASM TRUE)
+        enable_language(ASM)
+    endif()
 endif()
 
 # ---------------------------------------------------------------------------
@@ -219,6 +218,10 @@ if(VRM_USE_ASM)
     endif()
 endif()
 
+if(VRM_ARCH_AARCH64)
+    list(APPEND VRM_SOURCES src/algo/scrypt-aarch64-neon.c)
+endif()
+
 # getopt_long fallback for platforms that lack it (some Windows toolchains).
 if(NOT HAVE_GETOPT_LONG)
     list(APPEND VRM_SOURCES compat/getopt/getopt_long.c)
@@ -229,6 +232,19 @@ if(WIN32)
 endif()
 
 add_executable(cpuminer ${VRM_SOURCES})
+
+if(ENABLE_ARM_CRYPTO AND VRM_ARCH_AARCH64)
+    include(CheckCCompilerFlag)
+    check_c_compiler_flag("-march=armv8-a+crypto" _vrm_arm_crypto)
+    if(_vrm_arm_crypto)
+        target_compile_options(cpuminer PRIVATE
+            $<$<COMPILE_LANGUAGE:C>:-march=armv8-a+crypto>)
+        target_compile_definitions(cpuminer PRIVATE VRM_HAVE_ARM_CRYPTO=1)
+        message(STATUS "veriumMiner: ENABLE_ARM_CRYPTO (SHA2 extension point; scrypt NEON unchanged)")
+    else()
+        message(WARNING "veriumMiner: ENABLE_ARM_CRYPTO requested but compiler lacks armv8-a+crypto")
+    endif()
+endif()
 
 target_include_directories(cpuminer PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"          # for "compat/winansi.h"

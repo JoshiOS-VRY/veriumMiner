@@ -103,7 +103,7 @@ extern uint32_t solved_count;
 extern uint32_t accepted_count;
 extern uint32_t rejected_count;
 
-#define cpu_threads opt_n_threads
+#define cpu_threads opt_n_total_threads
 
 #define USE_MONITORING
 extern float cpu_temp(int);
@@ -114,7 +114,7 @@ extern int cpu_fanpercent(void);
 
 static void cpustatus(int thr_id)
 {
-	if (thr_id >= 0 && thr_id < opt_n_threads) {
+	if (thr_id >= 0 && thr_id < opt_n_total_threads) {
 		struct cpu_info *cpu = &thr_info[thr_id].cpu;
 		char buf[512]; *buf = '\0';
 
@@ -158,7 +158,7 @@ static char *getsummary(char *params)
 		"TEMP=%.1f;FAN=%d;FREQ=%d;UPTIME=%.0f;TS=%u;"
 		"POOL=%d;POOLSTAT=%s;WORKER=%s|",
 		PACKAGE_NAME, PACKAGE_VERSION, APIVERSION,
-		algo, opt_n_threads, stats_total_hps() * 60.0,
+		algo, opt_n_total_threads, stats_total_hps() * 60.0,
 		stats_ema_60s() * 60.0, stats_ema_900s() * 60.0,
 		solved_count, accepted_count, rejected_count,
 		stats_accept_pct(), accps, net_diff > 0. ? net_diff : stratum_diff,
@@ -212,7 +212,7 @@ static char *getmetrics(char *params)
 		(unsigned)accepted_count, (unsigned)rejected_count,
 		stats_accept_pct(), (long)(time(NULL) - startup),
 		g_pool_connected, (double)cpu_temp(0),
-		opt_n_threads, tp ? tp->physical_cpus : opt_n_threads);
+		opt_n_total_threads, tp ? tp->physical_cpus : opt_n_total_threads);
 	return buffer;
 }
 
@@ -222,7 +222,7 @@ static char *getmetrics(char *params)
 static char *getthreads(char *params)
 {
 	*buffer = '\0';
-	for (int i = 0; i < opt_n_threads; i++)
+	for (int i = 0; i < opt_n_total_threads; i++)
 		cpustatus(i);
 	return buffer;
 }

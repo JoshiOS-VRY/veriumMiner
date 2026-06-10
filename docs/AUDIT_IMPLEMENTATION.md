@@ -24,13 +24,14 @@ file is the in-tree record of what was addressed.)
 | R3/R4 | Reliability | Worker survives alloc/get_work failures (retry/disable vs `exit(1)`) |
 | R5 | Reliability | `watchdog_thread`: stall detection + status tick |
 | R6/R7 | Reliability | API `json`, `health`, `metrics`; structured summary fields |
+| P6 | Performance | ARM64 NEON 3-way scrypt (`scrypt-aarch64-neon.c`), 3-way equiv test, ~384 MB/thread on aarch64 |
 
 ## Deferred (consensus or scope)
 
 | ID | Reason |
 |----|--------|
-| P6 | ARM64 NEON multi-way scrypt core requires golden-vector validation before merge; portable C core remains default on Apple/arm64 |
 | AVX-512 | Extension point documented in `scrypt.c`; not enabled without validated core |
+| ARM SHA crypto | `ENABLE_ARM_CRYPTO` CMake hook; accelerated PBKDF2 pending golden vectors |
 | U5 earnings | Pool-specific payout APIs differ; use pool web UI or future pool-plugin |
 | Full TUI/ncurses | Status panel + API JSON cover MVP; dedicated TUI can build on `stats_json_summary()` |
 
@@ -40,3 +41,4 @@ file is the in-tree record of what was addressed.)
 - `src/stats.c`, `include/stats.h`
 - `src/pools.c`, `include/pools.h`
 - `src/onboard.c`, `include/onboard.h`
+- `src/algo/scrypt-aarch64-neon.c`

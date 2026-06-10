@@ -202,12 +202,18 @@ struct work;
 /* Verium uses scrypt^2 ("VeriHash"). Only the scrypt scanner is built. */
 int scanhash_sha256d(int thr_id, struct work *work, uint32_t max_nonce, uint64_t *hashes_done);
 int scrypt_rom_lane_count(void);
+int scrypt_rom_lane_count_for(int force_throughput);
 size_t scrypt_scratchpad_bytes(int N);
+size_t scrypt_scratchpad_bytes_for(int N, int force_throughput);
 int scrypt_large_pages_active(void);
 unsigned char *scrypt_buffer_alloc(int N);
+unsigned char *scrypt_buffer_alloc_for(int N, int force_throughput);
 void scrypt_buffer_free(unsigned char *buf, int N);
 int scanhash_scrypt(int thr_id, struct work *work, uint32_t max_nonce, uint64_t *hashes_done,
-					unsigned char *scratchbuf, uint32_t N);
+					unsigned char *scratchbuf, uint32_t N, int force_throughput);
+
+/* ARM64 NEON 3-way vs 1-way equivalence (ctest); no-op when 3-way is unavailable. */
+int scrypt_3way_equiv_selftest(void);
 
 /* api related */
 void *api_thread(void *userdata);
@@ -236,6 +242,7 @@ struct thr_info {
 	pthread_attr_t attr;
 	struct thread_q	*q;
 	struct cpu_info cpu;
+	int force_throughput; /* -1 = auto (3-way on aarch64), 1 = force 1-way */
 };
 
 struct work_restart {
@@ -269,6 +276,8 @@ extern int longpoll_thr_id;
 extern int stratum_thr_id;
 extern int api_thr_id;
 extern int opt_n_threads;
+extern int opt_n_oneway_threads;
+extern int opt_n_total_threads;
 extern int num_cpus;
 extern struct work_restart *work_restart;
 extern uint32_t opt_work_size;
