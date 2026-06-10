@@ -72,6 +72,11 @@ tests, packages, checksums, and publishes binaries for all platforms. Bump the
 version in [`CMakeLists.txt`](CMakeLists.txt) (`project(... VERSION ...)`) before
 tagging.
 
+After tagging, bump the wallet pin so pool mining stays on the same build:
+
+- [`verium/desktop/verium-app/cpuminer.lock.json`](../verium/desktop/verium-app/cpuminer.lock.json) — set `"version"` to the new tag (without `v`)
+- Wallet CI fetches that release; monorepo dev uses `npm run fetch:cpuminer:local`
+
 **macOS Intel:** x86_64 `.S` assembly requires `contrib/nomacro.pl` (run
 automatically by CMake at configure on `APPLE` + x86_64) because Clang does not
 expand GAS `.macro` blocks the same way as Linux GAS. Re-run `cmake` after
