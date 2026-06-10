@@ -25,6 +25,11 @@ if(VRM_ARCH_AARCH64)
     list(APPEND _scrypt_core_sources ${CMAKE_SOURCE_DIR}/src/algo/scrypt-aarch64-neon.c)
 endif()
 
+# nomacro outputs do not exist until build time (macOS Intel).
+if(VRM_NOMACRO_GENERATED)
+    set_source_files_properties(${VRM_NOMACRO_GENERATED} PROPERTIES GENERATED TRUE)
+endif()
+
 set(_test_sources test_hash.c ${_scrypt_core_sources})
 
 add_executable(test_hash ${_test_sources})

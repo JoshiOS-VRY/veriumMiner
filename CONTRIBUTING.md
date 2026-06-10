@@ -71,3 +71,7 @@ Releases are tag-driven: pushing a `vX.Y.Z` tag runs
 tests, packages, checksums, and publishes binaries for all platforms. Bump the
 version in [`CMakeLists.txt`](CMakeLists.txt) (`project(... VERSION ...)`) before
 tagging.
+
+**macOS Intel:** x86_64 `.S` assembly requires `contrib/nomacro.pl` (run
+automatically by CMake on `APPLE` + x86_64) because Clang does not expand GAS
+`.macro` blocks the same way as Linux GAS.

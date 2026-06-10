@@ -218,6 +218,7 @@ if(APPLE AND VRM_ARCH_X86_64 AND VRM_USE_ASM)
             VERBATIM)
         list(APPEND VRM_NOMACRO_GENERATED "${_vrm_gen_asm_dir}/${_vrm_asm_in}")
     endforeach()
+    set_source_files_properties(${VRM_NOMACRO_GENERATED} PROPERTIES GENERATED TRUE)
     message(STATUS "veriumMiner: macOS x86_64 assembly via nomacro.pl")
 endif()
 
