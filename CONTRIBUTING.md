@@ -73,5 +73,6 @@ version in [`CMakeLists.txt`](CMakeLists.txt) (`project(... VERSION ...)`) befor
 tagging.
 
 **macOS Intel:** x86_64 `.S` assembly requires `contrib/nomacro.pl` (run
-automatically by CMake on `APPLE` + x86_64) because Clang does not expand GAS
-`.macro` blocks the same way as Linux GAS.
+automatically by CMake at configure on `APPLE` + x86_64) because Clang does not
+expand GAS `.macro` blocks the same way as Linux GAS. Re-run `cmake` after
+editing `src/asm/*.S`.

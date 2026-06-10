@@ -197,29 +197,63 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindOrFetchJansson.cmake)
 # runs nomacro.pl to rewrite macros as C preprocessor #defines before assembly.
 set(VRM_ASM_X64_SHA2 "${CMAKE_CURRENT_SOURCE_DIR}/src/asm/sha2-x64.S")
 set(VRM_ASM_X64_SCRYPT "${CMAKE_CURRENT_SOURCE_DIR}/src/asm/scrypt-x64.S")
-set(VRM_NOMACRO_GENERATED "")
 if(APPLE AND VRM_ARCH_X86_64 AND VRM_USE_ASM)
     find_package(Perl REQUIRED)
     set(_vrm_gen_asm_dir "${CMAKE_CURRENT_BINARY_DIR}/generated-asm")
-    set(VRM_ASM_X64_SHA2 "${_vrm_gen_asm_dir}/sha2-x64.S")
-    set(VRM_ASM_X64_SCRYPT "${_vrm_gen_asm_dir}/scrypt-x64.S")
+    file(MAKE_DIRECTORY "${_vrm_gen_asm_dir}")
     foreach(_vrm_asm_in scrypt-x64.S sha2-x64.S)
-        add_custom_command(
-            OUTPUT "${_vrm_gen_asm_dir}/${_vrm_asm_in}"
-            COMMAND ${CMAKE_COMMAND} -E make_directory "${_vrm_gen_asm_dir}"
+        execute_process(
             COMMAND "${PERL_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/contrib/nomacro.pl"
                 "${CMAKE_CURRENT_SOURCE_DIR}/src/asm/${_vrm_asm_in}"
                 "${_vrm_gen_asm_dir}/${_vrm_asm_in}"
-            DEPENDS
-                "${CMAKE_CURRENT_SOURCE_DIR}/src/asm/${_vrm_asm_in}"
-                "${CMAKE_CURRENT_SOURCE_DIR}/contrib/nomacro.pl"
-            COMMENT "nomacro ${_vrm_asm_in} (macOS Clang)"
-            VERBATIM)
-        list(APPEND VRM_NOMACRO_GENERATED "${_vrm_gen_asm_dir}/${_vrm_asm_in}")
+            RESULT_VARIABLE _vrm_nomacro_rc
+            ERROR_VARIABLE _vrm_nomacro_err
+            ERROR_STRIP_TRAILING_WHITESPACE)
+        if(NOT _vrm_nomacro_rc EQUAL 0)
+            message(FATAL_ERROR
+                "nomacro.pl failed on ${_vrm_asm_in}: ${_vrm_nomacro_err}")
+        endif()
     endforeach()
-    set_source_files_properties(${VRM_NOMACRO_GENERATED} PROPERTIES GENERATED TRUE)
+    set(VRM_ASM_X64_SHA2 "${_vrm_gen_asm_dir}/sha2-x64.S")
+    set(VRM_ASM_X64_SCRYPT "${_vrm_gen_asm_dir}/scrypt-x64.S")
     message(STATUS "veriumMiner: macOS x86_64 assembly via nomacro.pl")
+endif()
+
+# Consensus hashing core: one static library linked by cpuminer and regression tests
+# so per-arch assembly (incl. nomacro output) is compiled exactly once.
+set(VRM_CORE_SOURCES
+    src/algo/scrypt.c
+    src/algo/sha2.c)
+
+if(VRM_USE_ASM)
+    if(VRM_ARCH_X86_64)
+        list(APPEND VRM_CORE_SOURCES ${VRM_ASM_X64_SHA2} ${VRM_ASM_X64_SCRYPT})
+    elseif(VRM_ARCH_X86)
+        list(APPEND VRM_CORE_SOURCES src/asm/sha2-x86.S src/asm/scrypt-x86.S)
+    elseif(VRM_ARCH_ARM)
+        list(APPEND VRM_CORE_SOURCES src/asm/sha2-arm.S src/asm/scrypt-arm.S)
+    endif()
+endif()
+
+if(VRM_ARCH_AARCH64)
+    list(APPEND VRM_CORE_SOURCES src/algo/scrypt-aarch64-neon.c)
+endif()
+
+add_library(vrm_scrypt_core STATIC ${VRM_CORE_SOURCES})
+target_include_directories(vrm_scrypt_core PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_BINARY_DIR}")
+target_link_libraries(vrm_scrypt_core PUBLIC
+    CURL::libcurl
+    Jansson::Jansson)
+
+if(NOT MSVC)
+    target_compile_options(vrm_scrypt_core PRIVATE
+        -fno-strict-aliasing
+        $<$<COMPILE_LANGUAGE:C>:-Wno-pointer-sign>
+        $<$<COMPILE_LANGUAGE:C>:-Wall>)
 endif()
 
 set(VRM_SOURCES
@@ -233,23 +267,7 @@ set(VRM_SOURCES
     src/pools.c
     src/onboard.c
     src/sha1.c
-    src/uint256.cpp
-    src/algo/scrypt.c
-    src/algo/sha2.c)
-
-if(VRM_USE_ASM)
-    if(VRM_ARCH_X86_64)
-        list(APPEND VRM_SOURCES ${VRM_ASM_X64_SHA2} ${VRM_ASM_X64_SCRYPT})
-    elseif(VRM_ARCH_X86)
-        list(APPEND VRM_SOURCES src/asm/sha2-x86.S src/asm/scrypt-x86.S)
-    elseif(VRM_ARCH_ARM)
-        list(APPEND VRM_SOURCES src/asm/sha2-arm.S src/asm/scrypt-arm.S)
-    endif()
-endif()
-
-if(VRM_ARCH_AARCH64)
-    list(APPEND VRM_SOURCES src/algo/scrypt-aarch64-neon.c)
-endif()
+    src/uint256.cpp)
 
 # getopt_long fallback for platforms that lack it (some Windows toolchains).
 if(NOT HAVE_GETOPT_LONG)
@@ -261,6 +279,7 @@ if(WIN32)
 endif()
 
 add_executable(cpuminer ${VRM_SOURCES})
+target_link_libraries(cpuminer PRIVATE vrm_scrypt_core)
 
 if(ENABLE_ARM_CRYPTO AND VRM_ARCH_AARCH64)
     include(CheckCCompilerFlag)

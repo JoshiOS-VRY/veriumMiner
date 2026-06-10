@@ -28,13 +28,15 @@ extern void scrypthash(void *output, const void *input, uint32_t N);
 struct work_restart { volatile unsigned char restart; char pad[127]; };
 struct work_restart *work_restart = 0;
 
-int fulltest(const uint32_t *hash, const uint32_t *target)
+struct work;
+
+bool fulltest(const uint32_t *hash, const uint32_t *target)
 {
 	(void)hash; (void)target;
-	return 0;
+	return false;
 }
 
-void work_set_target_ratio(void *work, uint32_t *hash)
+void work_set_target_ratio(struct work *work, uint32_t *hash)
 {
 	(void)work; (void)hash;
 }
