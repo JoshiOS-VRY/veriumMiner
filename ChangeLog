@@ -1,1 +1,10 @@
-See git repository ('git log') for full changelog.
+1.4.8  2026-06-10
+  - ARM64: restore 3-way NEON scrypt core (~1.8× hashrate on Apple Silicon / Linux
+    arm64; ~384 MB/thread scratchpad). Banner shows "ARMV8 NEON".
+  - macOS Intel: re-enable x86_64 AVX2 assembly (was blocked by blanket Apple gate).
+  - Restore fireworm --oneways / -1 N mixed 1-way + 3-way thread tuning.
+  - Add scrypt 3-way lane equivalence test (ctest scrypt_3way_equiv).
+  - SBC heuristic: cap threads when NEON scratchpad exceeds 200 MB on low-core boards.
+  - ENABLE_ARM_CRYPTO CMake option (SHA2 extension hook; acceleration deferred).
+
+See git repository ('git log') for full history.

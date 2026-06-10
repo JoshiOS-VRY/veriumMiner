@@ -8,8 +8,8 @@ set(_scrypt_core_sources
 if(VRM_USE_ASM)
     if(VRM_ARCH_X86_64)
         list(APPEND _scrypt_core_sources
-             ${CMAKE_SOURCE_DIR}/src/asm/sha2-x64.S
-             ${CMAKE_SOURCE_DIR}/src/asm/scrypt-x64.S)
+             ${VRM_ASM_X64_SHA2}
+             ${VRM_ASM_X64_SCRYPT})
     elseif(VRM_ARCH_X86)
         list(APPEND _scrypt_core_sources
              ${CMAKE_SOURCE_DIR}/src/asm/sha2-x86.S

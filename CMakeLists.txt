@@ -7,7 +7,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(veriumminer
-        VERSION 1.4.7
+        VERSION 1.4.8
         DESCRIPTION "Multi-threaded CPU miner for Verium (scrypt^2)"
         LANGUAGES C CXX)
 
@@ -193,6 +193,34 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindOrFetchJansson.cmake)
 # ---------------------------------------------------------------------------
 # Sources
 # ---------------------------------------------------------------------------
+# Clang on macOS Intel mishandles GAS .macro in x86_64 .S files; fireworm
+# runs nomacro.pl to rewrite macros as C preprocessor #defines before assembly.
+set(VRM_ASM_X64_SHA2 "${CMAKE_CURRENT_SOURCE_DIR}/src/asm/sha2-x64.S")
+set(VRM_ASM_X64_SCRYPT "${CMAKE_CURRENT_SOURCE_DIR}/src/asm/scrypt-x64.S")
+set(VRM_NOMACRO_GENERATED "")
+if(APPLE AND VRM_ARCH_X86_64 AND VRM_USE_ASM)
+    find_package(Perl REQUIRED)
+    set(_vrm_gen_asm_dir "${CMAKE_CURRENT_BINARY_DIR}/generated-asm")
+    set(VRM_ASM_X64_SHA2 "${_vrm_gen_asm_dir}/sha2-x64.S")
+    set(VRM_ASM_X64_SCRYPT "${_vrm_gen_asm_dir}/scrypt-x64.S")
+    foreach(_vrm_asm_in scrypt-x64.S sha2-x64.S)
+        add_custom_command(
+            OUTPUT "${_vrm_gen_asm_dir}/${_vrm_asm_in}"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${_vrm_gen_asm_dir}"
+            COMMAND "${PERL_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/contrib/nomacro.pl"
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/asm/${_vrm_asm_in}"
+                "${_vrm_gen_asm_dir}/${_vrm_asm_in}"
+            DEPENDS
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/asm/${_vrm_asm_in}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/contrib/nomacro.pl"
+            COMMENT "nomacro ${_vrm_asm_in} (macOS Clang)"
+            VERBATIM)
+        list(APPEND VRM_NOMACRO_GENERATED "${_vrm_gen_asm_dir}/${_vrm_asm_in}")
+    endforeach()
+    message(STATUS "veriumMiner: macOS x86_64 assembly via nomacro.pl")
+endif()
+
 set(VRM_SOURCES
     src/cpu-miner.c
     src/util.c
@@ -210,7 +238,7 @@ set(VRM_SOURCES
 
 if(VRM_USE_ASM)
     if(VRM_ARCH_X86_64)
-        list(APPEND VRM_SOURCES src/asm/sha2-x64.S src/asm/scrypt-x64.S)
+        list(APPEND VRM_SOURCES ${VRM_ASM_X64_SHA2} ${VRM_ASM_X64_SCRYPT})
     elseif(VRM_ARCH_X86)
         list(APPEND VRM_SOURCES src/asm/sha2-x86.S src/asm/scrypt-x86.S)
     elseif(VRM_ARCH_ARM)
