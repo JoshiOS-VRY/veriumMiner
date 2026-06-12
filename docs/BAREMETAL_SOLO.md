@@ -2,7 +2,7 @@
 
 Fleet checklist for CPU miners on dedicated baremetal boxes connecting to a
 **veriumd** node (local wallet, headless node, or remote full node). Applies to
-**veriumMiner 1.4.9+** (replaces legacy FireWorm cpuminer for solo).
+**veriumMiner 1.4.10+** (replaces legacy FireWorm cpuminer for solo).
 
 Pool mining is unchanged — see the [README](../README.md).
 
@@ -114,7 +114,7 @@ Run: `./cpuminer -c /etc/veriumminer/solo.json`
 ## Rollout from legacy FireWorm cpuminer
 
 1. Stop the old service: `systemctl stop verium-miner` (or your unit name).
-2. Install **1.4.9** binary from [GitHub Releases](https://github.com/JoshiOS-VRY/veriumMiner/releases/tag/v1.4.9) or build from tag `v1.4.9`.
+2. Install **1.4.10** binary from [GitHub Releases](https://github.com/JoshiOS-VRY/veriumMiner/releases/tag/v1.4.10) or build from tag `v1.4.10`.
 3. Keep the same `-o`, `-O`, `--coinbase-addr`, and `--no-*` flags as before.
 4. Remove any pool-style `-u VAddress.worker` — solo uses `-O rpcuser:rpcpass`.
 5. Start and verify hashrate > 0 within one scantime (default 5 s):
@@ -131,7 +131,7 @@ printf 'summary\n' | nc -w 2 127.0.0.1 4048
 | `401` / authorization failed | Wrong RPC creds | Match `-O` to `rpcuser`/`rpcpassword` in verium.conf |
 | `0.00 H/m`, shares 0/0 | Node not synced or no work | `verium-cli getblockchaininfo` — `blocks` near network height |
 | `invalid address` | Bad coinbase | `--coinbase-addr` must be valid `V…` address |
-| `recommended <= 1` warning on `-t 6` | **1.4.8 bug** | Upgrade to **1.4.9+** or ignore warning and use explicit `-t` |
+| `recommended <= 1` warning on `-t 6` | **1.4.8 bug** | Upgrade to **1.4.10+** or ignore warning and use explicit `-t` |
 | `No usable protocol` | Disabled all work sources | Do not pass both `--no-getwork` and `--no-gbt` unless one path works |
 | `scrypt buffer allocation failed` | RAM | ~768 MB–1 GB per thread; lower `-t` or add swap |
 
@@ -148,7 +148,7 @@ Log file (if `--log-file` set): plain text, suitable for central log collection.
 
 ## Download
 
-- **Release:** `v1.4.9` — https://github.com/JoshiOS-VRY/veriumMiner/releases/tag/v1.4.9  
+- **Release:** `v1.4.10` — https://github.com/JoshiOS-VRY/veriumMiner/releases/tag/v1.4.10  
 - **Verify:** compare `SHA256SUMS` from the release assets with `sha256sum -c SHA256SUMS`.
 
 ## Related docs

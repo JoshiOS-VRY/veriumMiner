@@ -112,7 +112,6 @@ bool have_gbt = true;
 bool allow_getwork = true;
 bool want_stratum = true;
 bool have_stratum = false;
-bool opt_ryzen = false;
 bool opt_stratum_stats = false;
 bool allow_mininginfo = true;
 bool use_syslog = false;

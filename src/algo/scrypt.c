@@ -29,6 +29,8 @@
 
 #include "miner.h"
 
+bool opt_ryzen = false;
+
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>

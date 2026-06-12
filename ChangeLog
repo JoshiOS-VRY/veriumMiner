@@ -1,3 +1,7 @@
+1.4.10  2026-06-12
+  - Fix CI/test link: define opt_ryzen in libvrm_scrypt_core (scrypt.c) so test
+    binaries that link the static scrypt library resolve the symbol.
+
 1.4.9  2026-06-12
   - Solo / baremetal: restore FireWorm CLI flags (--no-getwork, --no-gbt,
     --no-longpoll, --ryzen) in getopt and --help (handlers existed but were
