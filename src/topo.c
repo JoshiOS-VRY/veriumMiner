@@ -403,7 +403,7 @@ int topo_recommended_threads(size_t scratchpad_bytes)
 	uint64_t ram_for_miner;
 	const uint64_t os_reserve = 4ULL * 1024ULL * 1024ULL * 1024ULL;
 
-	/* Hybrid Intel: performance_cpus counts P-logical CPUs; use P-core count. */
+	/* Hybrid Intel: performance_cpus counts P-logical CPUs; perf_phys is P-core count. */
 	if (g_topo.performance_cpus > 0 && g_topo.logical_cpus > g_topo.physical_cpus)
 		perf_phys = g_topo.performance_cpus / 2;
 	else if (perf > phys && phys > 0)
@@ -411,64 +411,70 @@ int topo_recommended_threads(size_t scratchpad_bytes)
 	else if (perf > 1 && perf == phys * 2)
 		perf_phys = phys;
 
-	/* Only cap by L3 when the full scratchpad could plausibly fit (small N / SBC).
-	 * Verium scrypt^2 uses ~768 MB/thread on AVX2 — always larger than L3, so
-	 * l3_bytes/scratchpad would clamp to 1 on every desktop Ryzen/Xeon. */
-	if (scratchpad_bytes > 0 && g_topo.l3_bytes > 0
-			&& g_topo.l3_bytes >= scratchpad_bytes) {
-		by_l3 = (int)(g_topo.l3_bytes / scratchpad_bytes);
-		if (by_l3 < 1)
-			by_l3 = 1;
-	}
+	/* On hybrid CPUs we pin workers to P-logical threads (worker_count), not half
+	 * that many — recommending perf_phys alone wrongly caps 8P+8E / 24-thread boxes at 8. */
+	{
+		int thread_cap = perf_phys;
+		if (g_topo.performance_cpus > 0
+				&& g_topo.logical_cpus > g_topo.physical_cpus) {
+			thread_cap = g_topo.worker_count > 0
+				? g_topo.worker_count : g_topo.performance_cpus;
+		}
 
-	ram_for_miner = g_topo.avail_ram_bytes;
-	if (ram_for_miner < os_reserve && g_topo.total_ram_bytes > os_reserve)
-		ram_for_miner = g_topo.total_ram_bytes - os_reserve;
-	else if (ram_for_miner > os_reserve)
-		ram_for_miner -= os_reserve;
-	else if (g_topo.total_ram_bytes > os_reserve)
-		ram_for_miner = g_topo.total_ram_bytes - os_reserve;
-	else
-		ram_for_miner = 0;
+		if (scratchpad_bytes > 0 && g_topo.l3_bytes > 0
+				&& g_topo.l3_bytes >= scratchpad_bytes) {
+			by_l3 = (int)(g_topo.l3_bytes / scratchpad_bytes);
+			if (by_l3 < 1)
+				by_l3 = 1;
+		}
 
-	if (scratchpad_bytes > 0 && ram_for_miner > 0) {
-		by_ram = (int)(ram_for_miner / scratchpad_bytes);
-		if (by_ram < 1)
-			by_ram = 1;
-	}
+		ram_for_miner = g_topo.avail_ram_bytes;
+		if (ram_for_miner < os_reserve && g_topo.total_ram_bytes > os_reserve)
+			ram_for_miner = g_topo.total_ram_bytes - os_reserve;
+		else if (ram_for_miner > os_reserve)
+			ram_for_miner -= os_reserve;
+		else if (g_topo.total_ram_bytes > os_reserve)
+			ram_for_miner = g_topo.total_ram_bytes - os_reserve;
+		else
+			ram_for_miner = 0;
 
-	/* Scrypt is memory-bandwidth bound; cap heuristically on desktop CPUs. */
-	by_bw = perf_phys;
-	if (by_bw > 12)
-		by_bw = 12;
+		if (scratchpad_bytes > 0 && ram_for_miner > 0) {
+			by_ram = (int)(ram_for_miner / scratchpad_bytes);
+			if (by_ram < 1)
+				by_ram = 1;
+		}
+
+		/* Scrypt is memory-bandwidth bound; cap at physical core count. */
+		by_bw = thread_cap;
+		if (by_bw > phys)
+			by_bw = phys;
 
 #if defined(__aarch64__) || defined(__arm64__)
-	/* AArch64 SBCs (e.g. Raspberry Pi): shared DRAM bus — one worker saturates it. */
-	if (scratchpad_bytes <= 136 * 1024 * 1024
-			&& phys <= 8
-			&& g_topo.logical_cpus == phys
-			&& by_bw > 1)
-		by_bw = 1;
-	/* NEON 3-way (~384 MB/thread): same bandwidth limit on low-core SBCs. */
-	if (scratchpad_bytes > 200 * 1024 * 1024
-			&& phys <= 8
-			&& g_topo.logical_cpus == phys
-			&& by_bw > 1)
-		by_bw = 1;
+		/* AArch64 SBCs (e.g. Raspberry Pi): shared DRAM bus — one worker saturates it. */
+		if (scratchpad_bytes <= 136 * 1024 * 1024
+				&& phys <= 8
+				&& g_topo.logical_cpus == phys
+				&& by_bw > 1)
+			by_bw = 1;
+		if (scratchpad_bytes > 200 * 1024 * 1024
+				&& phys <= 8
+				&& g_topo.logical_cpus == phys
+				&& by_bw > 1)
+			by_bw = 1;
 #endif
 
-	{
-		int rec = by_bw;
-		if (by_l3 < rec)
-			rec = by_l3;
-		if (by_ram < rec)
-			rec = by_ram;
-		if (perf_phys < rec)
-			rec = perf_phys;
-		if (rec < 1)
-			rec = 1;
-		return rec;
-	}
+		{
+			int rec = by_bw;
+			if (by_l3 < rec)
+				rec = by_l3;
+			if (by_ram < rec)
+				rec = by_ram;
+			if (thread_cap < rec)
+				rec = thread_cap;
+			if (rec < 1)
+				rec = 1;
+			return rec;
+		}
 }
 
 #if defined(__linux__)
