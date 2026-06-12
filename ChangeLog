@@ -1,3 +1,9 @@
+1.4.11  2026-06-12
+  - Topology: OS-driven worker schedule (Linux core_type, Windows CpuSet efficiency)
+    instead of hardcoded 24/16 hybrid tables; auto threads = min(logical CPUs, RAM).
+  - Solo/baremetal fleet target: includes 1.4.9–1.4.10 fixes (FireWorm flags,
+    --ryzen, L3 recommended<=1 bug, opt_ryzen link fix). See docs/BAREMETAL_SOLO.md.
+
 1.4.10  2026-06-12
   - Fix CI/test link: define opt_ryzen in libvrm_scrypt_core (scrypt.c) so test
     binaries that link the static scrypt library resolve the symbol.

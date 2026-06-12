@@ -106,7 +106,7 @@ Get-FileHash .\cpuminer.exe -Algorithm SHA256
 > and will be enabled once certificates are provisioned. Until then, verify with
 > `SHA256SUMS` and see [Troubleshooting](#troubleshooting) for antivirus notes.
 >
-> Docker: `docker run --rm ghcr.io/joshios-vry/veriumminer:1.4.10 -o stratum+tcp://mine.vericonomy.com:3333 -u VYourAddress.worker1 -p x -t 1`
+> Docker: `docker run --rm ghcr.io/joshios-vry/veriumminer:1.4.11 -o stratum+tcp://mine.vericonomy.com:3333 -u VYourAddress.worker1 -p x -t 1`
 > Raspberry Pi / SBC: see [docs/RASPBERRY_PI.md](docs/RASPBERRY_PI.md) (use `-t 1`; `.dockerignore` required for local `docker build`).
 
 ## Mining modes (pool and solo)
@@ -137,7 +137,7 @@ Requires a synced local node with RPC enabled. Mainnet default RPC port is
 
 JSON config example: see [`cpuminer-conf.solo.example.json`](cpuminer-conf.solo.example.json).
 Full walkthrough: [`docs/SOLO_MINING.md`](docs/SOLO_MINING.md).  
-Baremetal fleet rollout: [`docs/BAREMETAL_SOLO.md`](docs/BAREMETAL_SOLO.md).
+Baremetal fleet rollout: [`docs/BAREMETAL_SOLO.md`](docs/BAREMETAL_SOLO.md) (**upgrade to v1.4.11**).
 
 On Windows, edit and run [`contrib/windows/mine-verium-solo.bat`](contrib/windows/mine-verium-solo.bat)
 (after `veriumd` is running).
@@ -333,7 +333,7 @@ pool connection, and exits — so service restarts are graceful.
 | Windows x86_64      | windows-mingw64          | MSYS2 / MinGW-w64                       |
 | FreeBSD x86_64      | freebsd-x86_64           | VM-based CI                             |
 
-**Version:** 1.4.10 (see `CMakeLists.txt`).
+**Version:** 1.4.11 (see `CMakeLists.txt`).
 
 # Dependencies
 

@@ -1,19 +1,22 @@
 # Baremetal solo mining — operator notes
 
 Fleet checklist for CPU miners on dedicated baremetal boxes connecting to a
-**veriumd** node (local wallet, headless node, or remote full node). Applies to
-**veriumMiner 1.4.10+** (replaces legacy FireWorm cpuminer for solo).
+**veriumd** node (local wallet, headless node, or remote full node).
+
+**Upgrade target: veriumMiner 1.4.11** (replaces legacy FireWorm cpuminer for solo).
+Includes all baremetal fixes from 1.4.9–1.4.10 plus data-driven CPU/RAM auto-tuning.
 
 Pool mining is unchanged — see the [README](../README.md).
 
-## What changed in 1.4.9 (vs 1.4.8 and FireWorm)
+## Why upgrade from FireWorm (1.4.8 and earlier Tippy)
 
-| Issue (1.4.8) | Fix (1.4.9) |
+| FireWorm / 1.4.8 symptom | Fixed in 1.4.11 |
 | --- | --- |
-| `-t 0` picked **1 thread** on 12-core Ryzen; warning `recommended <= 1` | L3 heuristic fixed — auto threads use core count, RAM, and bandwidth again |
-| `--no-getwork`, `--no-gbt` silently ignored | Flags restored in CLI and JSON config |
-| `--ryzen` missing | Restored — forces AVX 3-way (often faster on Ryzen 1xxx/2xxx) |
-| Solo looked like pool in logs (`Pool ○ connecting`) | Still cosmetic; use `http://` URL and RPC credentials (below) |
+| `recommended <= 1` on multi-core Ryzen/baremetal | Yes — RAM + logical CPU auto-tune (no L3 false cap) |
+| `--no-getwork` / `--no-gbt` silently ignored | Yes — flags in CLI, JSON, and `--help` |
+| `--ryzen` missing | Yes — AVX 3-way scrypt path restored |
+| Solo HTTP timeouts with pool-style `VAddr.worker` user | Ops: use `-O rpcuser:rpcpass` + `http://` URL (see below) |
+| Hybrid Intel “recommended <= 8” on 16-thread rigs | Yes — OS core-type scheduling, no 24/16 hardcode |
 
 ## Architecture
 
@@ -50,7 +53,7 @@ rpcallowip=203.0.113.50/32
 Restart `veriumd` after editing. Open **TCP 33987** on the node firewall for
 remote miners.
 
-Verify from the **miner host**:
+**Mandatory smoke test from the baremetal host** (must pass before starting cpuminer):
 
 ```sh
 curl -s --user fleet_rpc_user:strong_random_password \
@@ -58,12 +61,10 @@ curl -s --user fleet_rpc_user:strong_random_password \
   http://NODE_IP:33987/
 ```
 
-Expect JSON with `"result"` and no connection timeout.
+Expect JSON with `"result"`. If this **times out**, fix RPC/network first — no miner
+version will solo mine until this works.
 
 ## Recommended miner command (baremetal)
-
-Replace placeholders. Use **explicit** `-t` until you confirm auto threads on
-each box (`--tune` prints the recommendation).
 
 ```sh
 ./cpuminer \
@@ -71,7 +72,7 @@ each box (`--tune` prints the recommendation).
   -O fleet_rpc_user:strong_random_password \
   --coinbase-addr=VYourPayoutAddress \
   --no-getwork --no-stratum --no-longpoll \
-  -t 6 \
+  -t 0 \
   --ryzen \
   --profile dedicated \
   --log-file=/var/log/veriumminer/solo.log
@@ -85,9 +86,12 @@ each box (`--tune` prints the recommendation).
 | `--no-getwork` | getblocktemplate only (matches legacy FireWorm) |
 | `--no-stratum` | Never negotiate Stratum on HTTP |
 | `--no-longpoll` | Poll on scantime instead of long-poll hang |
-| `-t N` | Thread count; `-t 0` = auto (OK on 1.4.9+) |
+| `-t 0` | Auto: min(logical CPUs, free RAM ÷ scratchpad) — or set explicit `-t N` |
 | `--ryzen` | AVX 3-way on AMD Ryzen (try with/without on Zen 3+) |
 | `--profile dedicated` | Higher CPU priority for mining rigs |
+
+Use `--tune` once per host to print the auto recommendation, or keep explicit `-t`
+if you already benchmarked FireWorm settings.
 
 ### JSON config (systemd / fleet deploy)
 
@@ -99,7 +103,7 @@ Copy [`cpuminer-conf.solo.example.json`](../cpuminer-conf.solo.example.json):
   "user": "fleet_rpc_user",
   "pass": "strong_random_password",
   "coinbase-addr": "VYourPayoutAddress",
-  "threads": 6,
+  "threads": 0,
   "profile": "dedicated",
   "no-getwork": true,
   "no-stratum": true,
@@ -111,29 +115,37 @@ Copy [`cpuminer-conf.solo.example.json`](../cpuminer-conf.solo.example.json):
 
 Run: `./cpuminer -c /etc/veriumminer/solo.json`
 
-## Rollout from legacy FireWorm cpuminer
+## Fleet rollout from legacy FireWorm (checklist)
 
-1. Stop the old service: `systemctl stop verium-miner` (or your unit name).
-2. Install **1.4.10** binary from [GitHub Releases](https://github.com/JoshiOS-VRY/veriumMiner/releases/tag/v1.4.10) or build from tag `v1.4.10`.
-3. Keep the same `-o`, `-O`, `--coinbase-addr`, and `--no-*` flags as before.
-4. Remove any pool-style `-u VAddress.worker` — solo uses `-O rpcuser:rpcpass`.
-5. Start and verify hashrate > 0 within one scantime (default 5 s):
+1. **Node:** Confirm `veriumd` synced; `rpcbind` + `rpcallowip` for each baremetal IP; firewall open on **33987**.
+2. **Smoke test:** Run the `curl getblockchaininfo` command above from **each** baremetal host.
+3. **Stop** legacy miner: `systemctl stop verium-miner` (or your unit name).
+4. **Download** [v1.4.11](https://github.com/JoshiOS-VRY/veriumMiner/releases/tag/v1.4.11) — pick `linux-x86_64` (or build from tag `v1.4.11`).
+5. **Verify** binary: `sha256sum -c SHA256SUMS` against release assets.
+6. **Replace** binary; keep FireWorm `-o`, `-O`, `--coinbase-addr`, `--no-*`, `--ryzen` flags.
+7. **Remove** pool config mistakes:
+   - No `stratum+tcp://` URL for solo
+   - No `-u VAddress.worker` — solo uses `-O rpcuser:rpcpass` only
+8. **Start** miner; within ~5 s hashrate should be > 0:
 
 ```sh
 printf 'summary\n' | nc -w 2 127.0.0.1 4048
 ```
 
+9. **Rollback plan:** keep FireWorm binary as `cpuminer-fireworm.bak` until 24 h stable hashrate.
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Action |
 | --- | --- | --- |
-| `HTTP request failed: Connection timed out after 30002 ms` | RPC not reachable | Check `veriumd` running, `rpcbind`, `rpcallowip`, firewall, correct IP/port |
+| `HTTP request failed: Connection timed out after 30002 ms` | RPC not reachable | `curl` test first; fix `veriumd`, `rpcbind`, `rpcallowip`, firewall |
 | `401` / authorization failed | Wrong RPC creds | Match `-O` to `rpcuser`/`rpcpassword` in verium.conf |
-| `0.00 H/m`, shares 0/0 | Node not synced or no work | `verium-cli getblockchaininfo` — `blocks` near network height |
+| `0.00 H/m`, worker name like `minerocpu` | Pool config on solo URL | Use `-O rpcuser:pass`, not wallet.worker; URL must be `http://` |
+| `0.00 H/m`, shares 0/0 | Node not synced | `verium-cli getblockchaininfo` |
 | `invalid address` | Bad coinbase | `--coinbase-addr` must be valid `V…` address |
-| `recommended <= 1` warning on `-t 6` | **1.4.8 bug** | Upgrade to **1.4.10+** or ignore warning and use explicit `-t` |
-| `No usable protocol` | Disabled all work sources | Do not pass both `--no-getwork` and `--no-gbt` unless one path works |
-| `scrypt buffer allocation failed` | RAM | ~768 MB–1 GB per thread; lower `-t` or add swap |
+| `recommended <= 1` on `-t 6` | Running **1.4.8 or older** | Upgrade to **1.4.11** |
+| `No usable protocol` | All work sources disabled | Do not pass both `--no-getwork` and `--no-gbt` without a working path |
+| `scrypt buffer allocation failed` | RAM | ~768 MB per thread; lower `-t` or add RAM/swap |
 
 ## Health monitoring
 
@@ -144,12 +156,10 @@ printf 'health\n' | nc -w 2 127.0.0.1 4048
 printf 'summary\n' | nc -w 2 127.0.0.1 4048
 ```
 
-Log file (if `--log-file` set): plain text, suitable for central log collection.
-
 ## Download
 
-- **Release:** `v1.4.10` — https://github.com/JoshiOS-VRY/veriumMiner/releases/tag/v1.4.10  
-- **Verify:** compare `SHA256SUMS` from the release assets with `sha256sum -c SHA256SUMS`.
+- **Release:** https://github.com/JoshiOS-VRY/veriumMiner/releases/tag/v1.4.11  
+- **Verify:** `SHA256SUMS` on the release page — `sha256sum -c SHA256SUMS`
 
 ## Related docs
 
