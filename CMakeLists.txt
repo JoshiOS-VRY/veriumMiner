@@ -7,7 +7,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(veriumminer
-        VERSION 1.4.8
+        VERSION 1.4.9
         DESCRIPTION "Multi-threaded CPU miner for Verium (scrypt^2)"
         LANGUAGES C CXX)
 
@@ -415,6 +415,16 @@ install(TARGETS cpuminer RUNTIME DESTINATION bin)
 if(BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
+endif()
+
+find_program(NPM_EXECUTABLE npm)
+if(NPM_EXECUTABLE AND EXISTS "${CMAKE_SOURCE_DIR}/package.json")
+    add_custom_target(format-check
+        COMMAND ${NPM_EXECUTABLE} run format:check
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Checking formatting with Prettier"
+    )
+    add_dependencies(cpuminer format-check)
 endif()
 
 message(STATUS "veriumMiner: ASM=${VRM_USE_ASM} AVX=${USE_AVX} AVX2=${USE_AVX2} "

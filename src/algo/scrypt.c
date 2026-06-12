@@ -539,6 +539,8 @@ static inline void scrypt_core(uint32_t *X, uint32_t *V, int N)
 int scrypt_rom_lane_count(void)
 {
 #if defined(USE_ASM) && defined(__x86_64__)
+	if (opt_ryzen)
+		return 3;
 	int tp = scrypt_best_throughput();
 	if (tp >= 3)
 		return 6;
@@ -861,6 +863,8 @@ extern int scanhash_scrypt(int thr_id, struct work *work, uint32_t max_nonce, ui
 	int throughput = scrypt_best_throughput();
 	int i, j;
 
+	if (opt_ryzen)
+		throughput = 3;
 	if (force_throughput > 0)
 		throughput = force_throughput;
 

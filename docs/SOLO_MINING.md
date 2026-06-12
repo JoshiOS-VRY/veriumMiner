@@ -114,10 +114,15 @@ port and network differ.
 
 ## Troubleshooting
 
-| Symptom | Fix |
-|--------|-----|
+| Symptom                     | Fix                                                                 |
+| --------------------------- | ------------------------------------------------------------------- |
 | Connection refused on 33987 | Start `veriumd`, confirm `server=1` and `rpcport` in `verium.conf`. |
-| 401 / authorization failed | Match `-O user:pass` to `rpcuser` / `rpcpassword` in `verium.conf`. |
-| No work / idle hashrate | Node must be synced; check `verium-cli getblockchaininfo`. |
-| Invalid address | `--coinbase-addr` must be a valid Verium address (starts with `V`). |
-| Out of memory | Lower `-t`; each thread needs ~1 GB scratchpad RAM. |
+| HTTP timeout (30 s)         | Node must listen on the miner host: set `rpcbind=0.0.0.0` and `rpcallowip=<miner-ip>/32` in `verium.conf` when mining remotely. Confirm firewall allows the RPC port. Use `-O rpcuser:rpcpassword` (not your wallet address). |
+| 401 / authorization failed  | Match `-O user:pass` to `rpcuser` / `rpcpassword` in `verium.conf`. |
+| No work / idle hashrate     | Node must be synced; check `verium-cli getblockchaininfo`.          |
+| Invalid address             | `--coinbase-addr` must be a valid Verium address (starts with `V`). |
+| Out of memory               | Lower `-t`; each thread needs ~1 GB scratchpad RAM.                 |
+| `recommended <= 1` warning  | Fixed in current tree (L3 heuristic no longer caps desktop CPUs to 1). Override with explicit `-t N`. |
+| Migrating from FireWorm     | Same flags restored: `--no-getwork --no-stratum --no-longpoll`, plus `--ryzen` on Ryzen rigs. Example: `cpuminer -o http://127.0.0.1:33987 -O user:pass --coinbase-addr=V… --no-getwork --no-stratum --no-longpoll -t 6 --ryzen` |
+
+Fleet operators: see [BAREMETAL_SOLO.md](BAREMETAL_SOLO.md) for rollout, remote RPC, and monitoring.

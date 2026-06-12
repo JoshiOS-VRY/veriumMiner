@@ -264,6 +264,7 @@ extern bool have_gbt;
 extern bool allow_getwork;
 extern bool want_stratum;
 extern bool have_stratum;
+extern bool opt_ryzen;
 extern bool opt_stratum_stats;
 extern char *opt_cert;
 extern char *opt_proxy;

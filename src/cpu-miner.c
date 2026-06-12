@@ -112,6 +112,7 @@ bool have_gbt = true;
 bool allow_getwork = true;
 bool want_stratum = true;
 bool have_stratum = false;
+bool opt_ryzen = false;
 bool opt_stratum_stats = false;
 bool allow_mininginfo = true;
 bool use_syslog = false;
@@ -264,8 +265,12 @@ Options:\n\
   -f, --diff-factor     Divide pool difficulty by this factor\n\
   -m, --diff-multiplier Multiply pool difficulty by this factor\n\
       --coinbase-addr=ADDR  Solo mining payout address\n\
+      --no-longpoll     Disable long polling (solo: poll via scantime)\n\
+      --no-getwork      Disable getwork (solo: getblocktemplate only)\n\
+      --no-gbt          Disable getblocktemplate (getwork only)\n\
       --no-stratum      Disable Stratum\n\
       --no-redirect     Ignore pool URL redirect requests\n\
+      --ryzen           Force AVX 3-way scrypt (skip AVX2 on Ryzen)\n\
   -q, --quiet           Minimal console output (status panel still available)\n\
       --status-interval=N  Seconds between status summaries (default: 30)\n\
       --profile=MODE    background (default) or dedicated (higher CPU priority)\n\
@@ -334,8 +339,11 @@ static struct option const options[] = {
 	{ "diff-multiplier", 1, NULL, 'm' },
 	{ "help", 0, NULL, 'h' },
 	{ "no-longpoll", 0, NULL, 1003 },
+	{ "no-getwork", 0, NULL, 1010 },
+	{ "no-gbt", 0, NULL, 1011 },
 	{ "no-redirect", 0, NULL, 1009 },
 	{ "no-stratum", 0, NULL, 1007 },
+	{ "ryzen", 0, NULL, 2000 },
 	{ "no-extranonce", 0, NULL, 1012 },
 	{ "max-temp", 1, NULL, 1060 },
 	{ "max-diff", 1, NULL, 1061 },
@@ -2588,6 +2596,9 @@ void parse_arg(int key, char *arg)
 	case 1011:
 		have_gbt = false;
 		break;
+	case 2000:
+		opt_ryzen = true;
+		break;
 	case 1012:
 		opt_extranonce = false;
 		break;
@@ -2998,6 +3009,13 @@ int main(int argc, char *argv[]) {
 	if (rpc_url)
 		pools_set_primary(rpc_url);
 
+	if (!opt_benchmark && url_is_solo_rpc(rpc_url)) {
+		want_stratum = false;
+		if (!pk_script_size)
+			applog(LOG_WARNING,
+				"Solo mode: set --coinbase-addr=V… (payout address required for getblocktemplate)");
+	}
+
 	if (!opt_benchmark && rpc_url && g_loaded_config_path[0])
 		applog(LOG_NOTICE,
 			"Config: %s — change threads: edit \"threads\" in this file or run %s --setup",
@@ -3055,6 +3073,9 @@ int main(int argc, char *argv[]) {
 			scrypt_scratchpad_bytes(opt_scrypt_n) / (1024.0 * 1024.0),
 			topo_recommended_threads(scrypt_scratchpad_bytes(opt_scrypt_n)));
 	}
+
+	if (opt_ryzen)
+		applog(LOG_NOTICE, "Ryzen mode: AVX 3-way scrypt (--ryzen, AVX2 disabled)");
 
 	if (opt_profile == 1)
 		opt_priority = 3;

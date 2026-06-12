@@ -1,3 +1,12 @@
+1.4.9  2026-06-12
+  - Solo / baremetal: restore FireWorm CLI flags (--no-getwork, --no-gbt,
+    --no-longpoll, --ryzen) in getopt and --help (handlers existed but were
+    omitted from the options table in 1.4.x).
+  - Fix auto-thread recommendation on desktop Ryzen/Xeon: L3 heuristic no longer
+    caps every scrypt^2 worker to 1 thread (~768 MB ROM vs ~32 MB L3).
+  - Solo http:// URLs auto-disable Stratum; warn when --coinbase-addr is missing.
+  - docs/SOLO_MINING.md and docs/BAREMETAL_SOLO.md: remote RPC and migration notes.
+
 1.4.8  2026-06-10
   - ARM64: restore 3-way NEON scrypt core (~1.8× hashrate on Apple Silicon / Linux
     arm64; ~384 MB/thread scratchpad). Banner shows "ARMV8 NEON".

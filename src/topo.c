@@ -411,7 +411,11 @@ int topo_recommended_threads(size_t scratchpad_bytes)
 	else if (perf > 1 && perf == phys * 2)
 		perf_phys = phys;
 
-	if (scratchpad_bytes > 0 && g_topo.l3_bytes > 0) {
+	/* Only cap by L3 when the full scratchpad could plausibly fit (small N / SBC).
+	 * Verium scrypt^2 uses ~768 MB/thread on AVX2 — always larger than L3, so
+	 * l3_bytes/scratchpad would clamp to 1 on every desktop Ryzen/Xeon. */
+	if (scratchpad_bytes > 0 && g_topo.l3_bytes > 0
+			&& g_topo.l3_bytes >= scratchpad_bytes) {
 		by_l3 = (int)(g_topo.l3_bytes / scratchpad_bytes);
 		if (by_l3 < 1)
 			by_l3 = 1;
