@@ -117,7 +117,7 @@ Run: `./cpuminer -c /etc/veriumminer/solo.json`
 2. Install **1.4.9** binary from [GitHub Releases](https://github.com/JoshiOS-VRY/veriumMiner/releases/tag/v1.4.9) or build from tag `v1.4.9`.
 3. Keep the same `-o`, `-O`, `--coinbase-addr`, and `--no-*` flags as before.
 4. Remove any pool-style `-u VAddress.worker` — solo uses `-O rpcuser:rpcpass`.
-5. Start and verify hashrate &gt; 0 within one scantime (default 5 s):
+5. Start and verify hashrate > 0 within one scantime (default 5 s):
 
 ```sh
 printf 'summary\n' | nc -w 2 127.0.0.1 4048
