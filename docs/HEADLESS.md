@@ -127,7 +127,7 @@ Use this before leaving a rig unattended:
 2. **Logging** — Set `"log-file"` (or `--log-file`) so restarts leave an audit trail.
 3. **Service** — Install systemd / launchd / Scheduled Task (section 3 above) so the
    miner restarts on failure and starts at boot.
-4. **Dependencies** — For solo, ensure **veriumd** runs and stays synced *before* the
+4. **Dependencies** — For solo, ensure **veriumd** runs and stays synced _before_ the
    miner starts. See [SOLO_MINING.md](SOLO_MINING.md).
 5. **Health** — Probe the local API periodically:
 

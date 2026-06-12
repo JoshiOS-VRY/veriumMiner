@@ -3024,15 +3024,16 @@ int main(int argc, char *argv[]) {
 		int rec = topo_recommended_threads(scrypt_scratchpad_bytes(opt_scrypt_n));
 		opt_n_threads = rec > 0 ? rec : num_cpus;
 		applog(LOG_NOTICE,
-			"Auto threads: %d (config \"threads\": 0 — min of P-cores, L3, free RAM, bandwidth)",
+			"Auto threads: %d (config \"threads\": 0 — min of logical CPUs and free RAM)",
 			opt_n_threads);
 	} else {
 		applog(LOG_NOTICE, "Mining threads: %d (from config or -t)", opt_n_threads);
 		int rec = topo_recommended_threads(scrypt_scratchpad_bytes(opt_scrypt_n));
 		if (rec > 0 && opt_n_threads > rec)
 			applog(LOG_WARNING,
-				"%d threads may oversubscribe memory bandwidth (recommended <= %d)",
-				opt_n_threads, rec);
+				"%d threads exceed auto recommendation %d (usually RAM — ~%.0f MB/thread)",
+				opt_n_threads, rec,
+				scrypt_scratchpad_bytes(opt_scrypt_n) / (1024.0 * 1024.0));
 	}
 	if (!opt_n_threads)
 		opt_n_threads = 1;
@@ -3053,9 +3054,9 @@ int main(int argc, char *argv[]) {
 			sp_mb, sp_mb * opt_n_threads, opt_n_total_threads, opt_scrypt_n);
 		if (tp) {
 			if (tp->performance_cpus > 0
-					&& tp->performance_cpus != tp->physical_cpus)
+					&& tp->performance_cpus < tp->logical_cpus)
 				applog(LOG_NOTICE,
-					"Topology: %d logical, %d physical, %d performance (P) CPUs — workers pinned to P-cores",
+					"Topology: %d logical, %d physical, %d performance (P) logical — workers prefer P-cores first",
 					tp->logical_cpus, tp->physical_cpus, tp->performance_cpus);
 			else
 				applog(LOG_NOTICE,

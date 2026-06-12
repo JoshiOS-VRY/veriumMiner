@@ -140,13 +140,13 @@ bool onboard_interactive(char *out_config_path, size_t pathsz)
 	if (tp && rec_threads > 0) {
 		printf("Detected CPU: %d logical / %d physical core(s).\n",
 		       tp->logical_cpus, tp->physical_cpus);
-		if (tp->performance_cpus > 0 && tp->performance_cpus != tp->physical_cpus)
-			printf("  Hybrid CPU: %d performance (P) logical CPUs detected.\n",
+		if (tp->performance_cpus > 0 && tp->performance_cpus < tp->logical_cpus)
+			printf("  Hybrid CPU: %d performance (P) logical CPUs (P-first worker order).\n",
 			       tp->performance_cpus);
 		printf("  threads=0 (auto) will use ~%d worker(s) (~%.0f MB scrypt scratchpad each;\n",
 		       rec_threads,
 		       scrypt_scratchpad_bytes(1048576) / (1024.0 * 1024.0));
-		printf("  auto may be below core count due to RAM, L3 cache, or memory bandwidth).\n\n");
+		printf("  limited by logical CPUs and available RAM).\n\n");
 	}
 
 	if (!prompt("Mining URL (pool stratum+tcp://… or solo http://127.0.0.1:33987)",

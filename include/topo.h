@@ -9,7 +9,7 @@
 struct topo_info {
 	int logical_cpus;
 	int physical_cpus;
-	/* Performance (P) cores on hybrid CPUs; 0 if unknown. */
+	/* Count of performance (P) logical CPUs when OS exposes core type; else 0. */
 	int performance_cpus;
 	uint64_t l3_bytes;
 	uint64_t total_ram_bytes;
