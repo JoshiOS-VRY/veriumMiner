@@ -121,13 +121,13 @@ typedef struct _TOPO_CPU_SET_ENTRY {
 	ULONG Size;
 	ULONG Type;
 	struct {
-		BYTE Id;
-		WORD Group;
-		BYTE LogicalProcessorIndex;
-		BYTE CoreIndex;
-		BYTE LastLevelCacheIndex;
-		WORD NumaNodeIndex;
-		BYTE EfficiencyClass;
+		ULONG Id;
+		USHORT Group;
+		UCHAR LogicalProcessorIndex;
+		UCHAR CoreIndex;
+		UCHAR LastLevelCacheIndex;
+		USHORT NumaNodeIndex;
+		UCHAR EfficiencyClass;
 	} CpuSet;
 } TOPO_CPU_SET_ENTRY;
 
@@ -567,6 +567,12 @@ int topo_recommended_threads(size_t scratchpad_bytes)
 		ram_for_miner = g_topo.total_ram_bytes - os_reserve;
 	else
 		ram_for_miner = 0;
+
+#if defined(WIN32)
+	/* ullAvailPhys overstates commit headroom when many large VirtualAllocs start together. */
+	if (ram_for_miner > 0)
+		ram_for_miner = (ram_for_miner * 3) / 4;
+#endif
 
 	if (scratchpad_bytes > 0 && ram_for_miner > 0) {
 		by_ram = (int)(ram_for_miner / scratchpad_bytes);

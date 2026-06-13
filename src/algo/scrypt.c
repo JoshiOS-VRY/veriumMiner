@@ -573,7 +573,7 @@ size_t scrypt_scratchpad_bytes_for(int N, int force_throughput)
  * Allocate the scrypt scratchpad. On Linux the buffer is aligned to a
  * huge-page boundary and the kernel is asked to back it with transparent
  * huge pages. Windows may use MEM_LARGE_PAGES when permitted.
- * The returned pointer is always free()-compatible across platforms.
+ * The returned pointer must be released with scrypt_buffer_free().
  */
 static int g_scrypt_large_pages;
 
@@ -646,7 +646,9 @@ void scrypt_buffer_free(unsigned char *buf, int N)
 		return;
 
 #if defined(WIN32)
-	VirtualFree(buf, 0, MEM_RELEASE);
+	/* malloc() fallback in scrypt_buffer_alloc_for is not VirtualAlloc memory. */
+	if (!VirtualFree(buf, 0, MEM_RELEASE))
+		free(buf);
 #else
 	free(buf);
 #endif

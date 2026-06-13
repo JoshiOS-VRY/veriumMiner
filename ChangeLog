@@ -1,3 +1,11 @@
+1.4.13  2026-06-13
+  - Windows: fix scrypt scratchpad free when VirtualAlloc fails and malloc fallback
+    was used (VirtualFree on heap memory crashed after setup / on worker exit).
+  - Windows: fix SYSTEM_CPU_SET_INFORMATION layout (ULONG Id) for hybrid CPU detection.
+  - Windows: conservative auto-thread RAM budget and stagger scratchpad allocation
+    so first-run mining after --setup is less likely to OOM or hard-exit.
+  - Guard restart_threads() when work_restart is not yet allocated.
+
 1.4.12  2026-06-13
   - Fix cppcheck uninitvar warning in topo_build_worker_schedule (guard qsort when n==0).
   - CI: run Prettier via node (vendored node_modules/.bin lacks +x on Linux).

@@ -1676,6 +1676,11 @@ static void *miner_thread(void *userdata)
 
 	if (opt_algo == ALGO_SCRYPT) {
 		int alloc_fail = 0;
+#ifdef WIN32
+		/* Stagger large VirtualAlloc calls — parallel ~768MB commits can fail on Windows. */
+		if (thr_id > 0)
+			Sleep((DWORD)thr_id * 250U);
+#endif
 		while (!scratchbuf && alloc_fail < 5) {
 			scratchbuf = scrypt_buffer_alloc_for(opt_scrypt_n, mythr->force_throughput);
 			if (!scratchbuf) {
@@ -1895,6 +1900,9 @@ out:
 void restart_threads(void)
 {
 	int i;
+
+	if (!work_restart || opt_n_total_threads <= 0)
+		return;
 
 	if (have_stratum)
 		time(&g_work_time);

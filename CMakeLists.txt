@@ -7,7 +7,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(veriumminer
-        VERSION 1.4.12
+        VERSION 1.4.13
         DESCRIPTION "Multi-threaded CPU miner for Verium (scrypt^2)"
         LANGUAGES C CXX)
 
