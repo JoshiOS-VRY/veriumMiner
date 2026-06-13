@@ -3,6 +3,7 @@
 ; Build:  makensis -DMINER_VERSION=1.4.8 cpuminer.nsi
 ; Expects, in the same directory as this script:
 ;   cpuminer.exe          (static MinGW build, no extra DLLs)
+;   res/cpuminer.ico      (Vericonomy logo — installer + uninstaller icon)
 ;   cpuminer-conf.json    (example config)
 ;   README.md, COPYING    (docs / license)
 ;
@@ -38,6 +39,9 @@ VIAddVersionKey "LegalCopyright"  "Copyright (C) Vericonomy contributors"
 VIAddVersionKey "FileDescription" "${PRODUCT_NAME} Setup"
 VIAddVersionKey "FileVersion"     "${MINER_VERSION}"
 VIAddVersionKey "ProductVersion"  "${MINER_VERSION}"
+
+!define MUI_ICON "res\cpuminer.ico"
+!define MUI_UNICON "res\cpuminer.ico"
 
 !define MUI_ABORTWARNING
 !insertmacro MUI_PAGE_WELCOME

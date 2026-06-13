@@ -1,3 +1,7 @@
+1.4.15  2026-06-13
+  - Windows: embed Vericonomy logo in cpuminer.exe and veriumminer-setup.exe
+    (res/cpuminer.ico; NSIS MUI_ICON / MUI_UNICON).
+
 1.4.14  2026-06-13
   - Fix cppcheck uninitvar warning for vm_statistics64_data_t on macOS probe.
   - Includes all 1.4.13 Windows first-run / setup crash fixes (use this release).
