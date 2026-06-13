@@ -224,7 +224,8 @@ static void topo_build_worker_schedule(void)
 		n++;
 	}
 
-	qsort(ents, (size_t)n, sizeof(ents[0]), topo_cmp_cpu_ent);
+	if (n > 0)
+		qsort(ents, (size_t)n, sizeof(ents[0]), topo_cmp_cpu_ent);
 
 	g_topo.worker_count = n;
 	for (int i = 0; i < n; i++)

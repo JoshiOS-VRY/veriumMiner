@@ -10,11 +10,11 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to build (e.g. v1.4.0)"
+        description: 'Release tag to build (e.g. v1.4.0)'
         required: true
 
 permissions:
@@ -38,7 +38,7 @@ jobs:
       matrix:
         include:
           - { arch: x86_64, runner: ubuntu-latest }
-          - { arch: arm64,  runner: ubuntu-24.04-arm }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
     steps:
       - uses: actions/checkout@v5
         with:
@@ -76,7 +76,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { arch: arm64,  runner: macos-14 }
+          - { arch: arm64, runner: macos-14 }
           - { arch: x86_64, runner: macos-15-intel }
     env:
       MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}

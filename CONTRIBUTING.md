@@ -15,7 +15,7 @@ the hashing path (`src/algo/`, `src/asm/`, scratchpad sizing, endianness) must:
 
 New SIMD/NEON cores must be validated against the portable C core on golden
 vectors **before** being enabled by default. The runtime gate is
-`cpuminer --selftest`, which hashes the locked vector with the *active* compiled
+`cpuminer --selftest`, which hashes the locked vector with the _active_ compiled
 core and exits non-zero on any mismatch; CI and the release pipeline run it on
 every build. On aarch64, `ctest` also runs `scrypt_3way_equiv` to verify each
 3-way lane matches the 1-way core.

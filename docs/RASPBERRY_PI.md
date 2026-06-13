@@ -4,12 +4,12 @@ Community-tested on **Raspberry Pi 5** (Verium Miner 1.4.7, arm64 build from sou
 
 ## Expected performance
 
-| Metric | Pi 5 (1 thread, NEON 3-way) |
-|--------|-----------------------------|
-| Hashrate | Benchmark on device — DRAM bus often caps gain vs 1-way |
-| Scrypt scratchpad | ~384 MB per default thread (NEON 3-way) |
-| Temperature | ~50 °C with light airflow |
-| Pool shares | Accepted at min difficulty 1e-8 |
+| Metric            | Pi 5 (1 thread, NEON 3-way)                             |
+| ----------------- | ------------------------------------------------------- |
+| Hashrate          | Benchmark on device — DRAM bus often caps gain vs 1-way |
+| Scrypt scratchpad | ~384 MB per default thread (NEON 3-way)                 |
+| Temperature       | ~50 °C with light airflow                               |
+| Pool shares       | Accepted at min difficulty 1e-8                         |
 
 Extra mining threads **do not** increase hashrate on Pi 5: the shared DRAM bus
 saturates with a single scrypt worker. Auto threads (`-t 0`) recommend **1**
