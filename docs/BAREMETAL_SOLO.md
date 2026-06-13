@@ -10,13 +10,13 @@ Pool mining is unchanged — see the [README](../README.md).
 
 ## Why upgrade from FireWorm (1.4.8 and earlier Tippy)
 
-| FireWorm / 1.4.8 symptom | Fixed in 1.4.11 |
-| --- | --- |
-| `recommended <= 1` on multi-core Ryzen/baremetal | Yes — RAM + logical CPU auto-tune (no L3 false cap) |
-| `--no-getwork` / `--no-gbt` silently ignored | Yes — flags in CLI, JSON, and `--help` |
-| `--ryzen` missing | Yes — AVX 3-way scrypt path restored |
+| FireWorm / 1.4.8 symptom                               | Fixed in 1.4.11                                           |
+| ------------------------------------------------------ | --------------------------------------------------------- |
+| `recommended <= 1` on multi-core Ryzen/baremetal       | Yes — RAM + logical CPU auto-tune (no L3 false cap)       |
+| `--no-getwork` / `--no-gbt` silently ignored           | Yes — flags in CLI, JSON, and `--help`                    |
+| `--ryzen` missing                                      | Yes — AVX 3-way scrypt path restored                      |
 | Solo HTTP timeouts with pool-style `VAddr.worker` user | Ops: use `-O rpcuser:rpcpass` + `http://` URL (see below) |
-| Hybrid Intel “recommended <= 8” on 16-thread rigs | Yes — OS core-type scheduling, no 24/16 hardcode |
+| Hybrid Intel “recommended <= 8” on 16-thread rigs      | Yes — OS core-type scheduling, no 24/16 hardcode          |
 
 ## Architecture
 
@@ -78,17 +78,17 @@ version will solo mine until this works.
   --log-file=/var/log/veriumminer/solo.log
 ```
 
-| Flag | Purpose |
-| --- | --- |
-| `-o http://…` | Solo mode (not `stratum+tcp://`) |
-| `-O user:pass` | **RPC** credentials from verium.conf |
-| `--coinbase-addr` | Verium address (`V…`) that receives block rewards |
-| `--no-getwork` | getblocktemplate only (matches legacy FireWorm) |
-| `--no-stratum` | Never negotiate Stratum on HTTP |
-| `--no-longpoll` | Poll on scantime instead of long-poll hang |
-| `-t 0` | Auto: min(logical CPUs, free RAM ÷ scratchpad) — or set explicit `-t N` |
-| `--ryzen` | AVX 3-way on AMD Ryzen (try with/without on Zen 3+) |
-| `--profile dedicated` | Higher CPU priority for mining rigs |
+| Flag                  | Purpose                                                                 |
+| --------------------- | ----------------------------------------------------------------------- |
+| `-o http://…`         | Solo mode (not `stratum+tcp://`)                                        |
+| `-O user:pass`        | **RPC** credentials from verium.conf                                    |
+| `--coinbase-addr`     | Verium address (`V…`) that receives block rewards                       |
+| `--no-getwork`        | getblocktemplate only (matches legacy FireWorm)                         |
+| `--no-stratum`        | Never negotiate Stratum on HTTP                                         |
+| `--no-longpoll`       | Poll on scantime instead of long-poll hang                              |
+| `-t 0`                | Auto: min(logical CPUs, free RAM ÷ scratchpad) — or set explicit `-t N` |
+| `--ryzen`             | AVX 3-way on AMD Ryzen (try with/without on Zen 3+)                     |
+| `--profile dedicated` | Higher CPU priority for mining rigs                                     |
 
 Use `--tune` once per host to print the auto recommendation, or keep explicit `-t`
 if you already benchmarked FireWorm settings.
@@ -136,16 +136,16 @@ printf 'summary\n' | nc -w 2 127.0.0.1 4048
 
 ## Troubleshooting
 
-| Symptom | Likely cause | Action |
-| --- | --- | --- |
-| `HTTP request failed: Connection timed out after 30002 ms` | RPC not reachable | `curl` test first; fix `veriumd`, `rpcbind`, `rpcallowip`, firewall |
-| `401` / authorization failed | Wrong RPC creds | Match `-O` to `rpcuser`/`rpcpassword` in verium.conf |
-| `0.00 H/m`, worker name like `minerocpu` | Pool config on solo URL | Use `-O rpcuser:pass`, not wallet.worker; URL must be `http://` |
-| `0.00 H/m`, shares 0/0 | Node not synced | `verium-cli getblockchaininfo` |
-| `invalid address` | Bad coinbase | `--coinbase-addr` must be valid `V…` address |
-| `recommended <= 1` on `-t 6` | Running **1.4.8 or older** | Upgrade to **1.4.11** |
-| `No usable protocol` | All work sources disabled | Do not pass both `--no-getwork` and `--no-gbt` without a working path |
-| `scrypt buffer allocation failed` | RAM | ~768 MB per thread; lower `-t` or add RAM/swap |
+| Symptom                                                    | Likely cause               | Action                                                                |
+| ---------------------------------------------------------- | -------------------------- | --------------------------------------------------------------------- |
+| `HTTP request failed: Connection timed out after 30002 ms` | RPC not reachable          | `curl` test first; fix `veriumd`, `rpcbind`, `rpcallowip`, firewall   |
+| `401` / authorization failed                               | Wrong RPC creds            | Match `-O` to `rpcuser`/`rpcpassword` in verium.conf                  |
+| `0.00 H/m`, worker name like `minerocpu`                   | Pool config on solo URL    | Use `-O rpcuser:pass`, not wallet.worker; URL must be `http://`       |
+| `0.00 H/m`, shares 0/0                                     | Node not synced            | `verium-cli getblockchaininfo`                                        |
+| `invalid address`                                          | Bad coinbase               | `--coinbase-addr` must be valid `V…` address                          |
+| `recommended <= 1` on `-t 6`                               | Running **1.4.8 or older** | Upgrade to **1.4.11**                                                 |
+| `No usable protocol`                                       | All work sources disabled  | Do not pass both `--no-getwork` and `--no-gbt` without a working path |
+| `scrypt buffer allocation failed`                          | RAM                        | ~768 MB per thread; lower `-t` or add RAM/swap                        |
 
 ## Health monitoring
 
@@ -158,10 +158,10 @@ printf 'summary\n' | nc -w 2 127.0.0.1 4048
 
 ## Download
 
-- **Release:** https://github.com/JoshiOS-VRY/veriumMiner/releases/tag/v1.4.11  
+- **Release:** https://github.com/JoshiOS-VRY/veriumMiner/releases/tag/v1.4.11
 - **Verify:** `SHA256SUMS` on the release page — `sha256sum -c SHA256SUMS`
 
 ## Related docs
 
-- [SOLO_MINING.md](SOLO_MINING.md) — full solo walkthrough  
-- [HEADLESS.md](HEADLESS.md) — systemd / 24×7 layout  
+- [SOLO_MINING.md](SOLO_MINING.md) — full solo walkthrough
+- [HEADLESS.md](HEADLESS.md) — systemd / 24×7 layout
