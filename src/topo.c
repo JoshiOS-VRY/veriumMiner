@@ -491,7 +491,7 @@ static void topo_darwin_probe(void)
 	}
 
 	{
-		vm_statistics64_data_t vm;
+		vm_statistics64_data_t vm = {0};
 		mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
 		vm_size_t page = 0;
 
