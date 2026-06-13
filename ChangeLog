@@ -1,3 +1,9 @@
+1.4.18  2026-06-13
+  - Windows: disable console Quick Edit on startup (click-to-select paused the whole
+    miner, not just log output).
+  - applog: release lock before writing to stdout so a blocked console cannot wedge
+    stratum job processing behind applog_lock.
+
 1.4.17  2026-06-13
   - Setup wizard: fix Enter-on-default for pool URL, password, and threads (prompt
     no longer uses the same buffer for default and input).

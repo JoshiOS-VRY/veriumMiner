@@ -2923,6 +2923,7 @@ int main(int argc, char *argv[]) {
 	pthread_mutex_init(&applog_lock, NULL);
 
 	show_credits();
+	verium_console_init();
 
 	rpc_user = strdup("");
 	rpc_pass = strdup("");

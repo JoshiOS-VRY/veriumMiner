@@ -29,6 +29,7 @@
 #if defined(WIN32)
 #include <winsock2.h>
 #include <mstcpip.h>
+#include <windows.h>
 #include "compat/winansi.h"
 #else
 #include <sys/socket.h>
@@ -96,6 +97,23 @@ void applog_open_logfile(const char *path)
 		return;
 	}
 	applog_file = f;
+}
+
+void verium_console_init(void)
+{
+#ifdef WIN32
+	HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
+	DWORD mode;
+
+	if (hIn != INVALID_HANDLE_VALUE && GetConsoleMode(hIn, &mode)) {
+		/* Quick Edit: selecting text in the console window blocks every thread
+		 * on the next WriteConsole (logging, stratum, mining all freeze). */
+		mode &= ~ENABLE_QUICK_EDIT_MODE;
+		mode &= ~ENABLE_INSERT_MODE;
+		SetConsoleMode(hIn, mode);
+	}
+#endif
+	setvbuf(stdout, NULL, _IOLBF, 0);
 }
 
 void applog(int prio, const char *fmt, ...)
@@ -183,10 +201,12 @@ void applog(int prio, const char *fmt, ...)
 			fflush(applog_file);
 			va_end(apf);
 		}
-		vfprintf(stdout, f, ap);	/* atomic write to stdout */
+		pthread_mutex_unlock(&applog_lock);
+		/* Do not hold applog_lock across stdout: a blocked console (Windows Quick
+		 * Edit selection) would stall every thread that logs, including stratum. */
+		vfprintf(stdout, f, ap);
 		fflush(stdout);
 		free(f);
-		pthread_mutex_unlock(&applog_lock);
 	}
 	va_end(ap);
 }

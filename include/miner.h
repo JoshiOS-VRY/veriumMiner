@@ -328,6 +328,8 @@ extern void restart_threads(void);
 #define CL_WHT  "\x1B[01;37m" /* white */
 
 void applog(int prio, const char *fmt, ...);
+/* Windows: disable Quick Edit (console click pauses the whole process). All platforms: line-buffer stdout. */
+void verium_console_init(void);
 void restart_threads(void);
 extern json_t *json_rpc_call(CURL *curl, const char *url, const char *userpass,
 	const char *rpc_req, int *curl_err, int flags);
