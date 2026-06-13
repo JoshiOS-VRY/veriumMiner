@@ -3024,14 +3024,14 @@ int main(int argc, char *argv[]) {
 		int rec = topo_recommended_threads(scrypt_scratchpad_bytes(opt_scrypt_n));
 		opt_n_threads = rec > 0 ? rec : num_cpus;
 		applog(LOG_NOTICE,
-			"Auto threads: %d (config \"threads\": 0 — min of logical CPUs and free RAM)",
+			"Auto threads: %d (config \"threads\": 0 — min of CPU budget and free RAM)",
 			opt_n_threads);
 	} else {
 		applog(LOG_NOTICE, "Mining threads: %d (from config or -t)", opt_n_threads);
 		int rec = topo_recommended_threads(scrypt_scratchpad_bytes(opt_scrypt_n));
 		if (rec > 0 && opt_n_threads > rec)
 			applog(LOG_WARNING,
-				"%d threads exceed auto recommendation %d (usually RAM — ~%.0f MB/thread)",
+				"%d threads exceed auto recommendation %d (~%.0f MB/thread; capped by CPU or RAM)",
 				opt_n_threads, rec,
 				scrypt_scratchpad_bytes(opt_scrypt_n) / (1024.0 * 1024.0));
 	}

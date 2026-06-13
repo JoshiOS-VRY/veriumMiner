@@ -135,7 +135,7 @@ bool onboard_interactive(char *out_config_path, size_t pathsz)
 	printf("(--setup, or \"Change Settings\" on macOS).\n\n");
 
 	tp = topo_get();
-	/* Same formula as runtime when threads=0 (RAM + L3 + bandwidth, not core count). */
+	/* Same formula as runtime when threads=0 (CPU budget and available RAM). */
 	rec_threads = topo_recommended_threads(scrypt_scratchpad_bytes(1048576));
 	if (tp && rec_threads > 0) {
 		printf("Detected CPU: %d logical / %d physical core(s).\n",
@@ -146,7 +146,7 @@ bool onboard_interactive(char *out_config_path, size_t pathsz)
 		printf("  threads=0 (auto) will use ~%d worker(s) (~%.0f MB scrypt scratchpad each;\n",
 		       rec_threads,
 		       scrypt_scratchpad_bytes(1048576) / (1024.0 * 1024.0));
-		printf("  limited by logical CPUs and available RAM).\n\n");
+		printf("  capped by physical-core budget and available RAM).\n\n");
 	}
 
 	if (!prompt("Mining URL (pool stratum+tcp://… or solo http://127.0.0.1:33987)",

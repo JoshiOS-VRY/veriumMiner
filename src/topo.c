@@ -25,6 +25,11 @@
 #include <pthread.h>
 #endif
 
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+#include <mach/mach.h>
+#endif
+
 #if defined(__linux__)
 #include <sched.h>
 #endif
@@ -73,27 +78,21 @@ static uint64_t topo_os_reserve_bytes(void)
 	}
 }
 
-#if defined(__aarch64__) || defined(__arm64__)
-static int topo_arm_bandwidth_limited_sbc(size_t scratchpad_bytes)
+/* CPU thread budget before RAM cap (no platform-specific overrides). */
+static int topo_recommended_cpu_threads(void)
 {
-	/* Homogeneous low-core ARM64 with modest LLC: DRAM bus usually saturates at one worker. */
-	if (g_topo.logical_cpus != g_topo.physical_cpus)
-		return 0;
-	if (g_topo.physical_cpus > 8 || g_topo.physical_cpus < 1)
-		return 0;
-	if (scratchpad_bytes <= 200ULL * 1024ULL * 1024ULL)
-		return 0;
-	if (g_topo.l3_bytes >= 32ULL * 1024ULL * 1024ULL)
-		return 0;
+	int logical = g_topo.logical_cpus > 0 ? g_topo.logical_cpus : 1;
+	int physical = g_topo.physical_cpus > 0 ? g_topo.physical_cpus : logical;
+
+	/* HT or hybrid (logical > physical): one worker per physical core. */
+	if (logical > physical)
+		return physical;
+
+	/* Homogeneous CPUs: leave one core for the OS. */
+	if (physical > 1)
+		return physical - 1;
 	return 1;
 }
-#else
-static int topo_arm_bandwidth_limited_sbc(size_t scratchpad_bytes)
-{
-	(void)scratchpad_bytes;
-	return 0;
-}
-#endif
 
 static int topo_linux_core_pref(int cpu)
 {
@@ -452,6 +451,60 @@ fallback:
 		}
 	}
 }
+#elif defined(__APPLE__)
+static int topo_darwin_sysctl_int(const char *name, int *out)
+{
+	size_t len = sizeof(int);
+
+	if (sysctlbyname(name, out, &len, NULL, 0) != 0)
+		return 0;
+	return 1;
+}
+
+static void topo_darwin_probe(void)
+{
+	int val = 0;
+
+	if (topo_darwin_sysctl_int("hw.logicalcpu", &val) && val > 0)
+		g_topo.logical_cpus = val;
+#if defined(_SC_NPROCESSORS_ONLN)
+	else
+		g_topo.logical_cpus = (int)sysconf(_SC_NPROCESSORS_ONLN);
+#else
+	else
+		g_topo.logical_cpus = 1;
+#endif
+	if (g_topo.logical_cpus < 1)
+		g_topo.logical_cpus = 1;
+
+	if (topo_darwin_sysctl_int("hw.physicalcpu", &val) && val > 0)
+		g_topo.physical_cpus = val;
+	else
+		g_topo.physical_cpus = g_topo.logical_cpus;
+
+	{
+		uint64_t mem = 0;
+		size_t len = sizeof(mem);
+
+		if (sysctlbyname("hw.memsize", &mem, &len, NULL, 0) == 0)
+			g_topo.total_ram_bytes = mem;
+	}
+
+	{
+		vm_statistics64_data_t vm;
+		mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+		vm_size_t page = 0;
+
+		if (host_statistics64(mach_host_self(), HOST_VM_INFO64,
+				(host_info64_t)&vm, &count) == KERN_SUCCESS
+				&& host_page_size(mach_host_self(), &page) == KERN_SUCCESS
+				&& page > 0) {
+			uint64_t avail = (uint64_t)(vm.free_count + vm.inactive_count
+					+ vm.purgeable_count) * (uint64_t)page;
+			g_topo.avail_ram_bytes = avail;
+		}
+	}
+}
 #else
 static void topo_generic_probe(void)
 {
@@ -478,6 +531,8 @@ void topo_init(void)
 #elif defined(WIN32)
 	topo_win_probe();
 	topo_win_load_core_prefs();
+#elif defined(__APPLE__)
+	topo_darwin_probe();
 #else
 	topo_generic_probe();
 #endif
@@ -498,13 +553,10 @@ const struct topo_info *topo_get(void)
 
 int topo_recommended_threads(size_t scratchpad_bytes)
 {
-	int exec = g_topo.worker_count > 0 ? g_topo.worker_count : g_topo.logical_cpus;
-	int by_ram = exec;
+	int by_cpu = topo_recommended_cpu_threads();
+	int by_ram = by_cpu;
 	uint64_t ram_for_miner;
 	const uint64_t os_reserve = topo_os_reserve_bytes();
-
-	if (exec < 1)
-		exec = 1;
 
 	ram_for_miner = g_topo.avail_ram_bytes;
 	if (ram_for_miner < os_reserve && g_topo.total_ram_bytes > os_reserve)
@@ -523,11 +575,9 @@ int topo_recommended_threads(size_t scratchpad_bytes)
 	}
 
 	{
-		int rec = exec;
+		int rec = by_cpu;
 		if (by_ram < rec)
 			rec = by_ram;
-		if (topo_arm_bandwidth_limited_sbc(scratchpad_bytes) && rec > 1)
-			rec = 1;
 		if (rec < 1)
 			rec = 1;
 		return rec;

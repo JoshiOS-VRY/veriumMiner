@@ -23,7 +23,7 @@ struct topo_info {
 void topo_init(void);
 const struct topo_info *topo_get(void);
 
-/* Recommended worker count from cache/RAM vs per-thread scratchpad. */
+/* Recommended worker count from CPU budget and RAM vs per-thread scratchpad. */
 int topo_recommended_threads(size_t scratchpad_bytes);
 
 /* Bind mining worker thread `thr_id` (0 .. n_threads-1). */
