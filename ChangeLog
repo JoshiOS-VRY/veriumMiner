@@ -1,3 +1,8 @@
+1.4.12  2026-06-13
+  - Fix cppcheck uninitvar warning in topo_build_worker_schedule (guard qsort when n==0).
+  - CI: run Prettier via node (vendored node_modules/.bin lacks +x on Linux).
+  - Prettier-format api/websocket.htm and solo mining docs.
+
 1.4.11  2026-06-12
   - Topology: OS-driven worker schedule (Linux core_type, Windows CpuSet efficiency)
     instead of hardcoded 24/16 hybrid tables; auto threads = min(logical CPUs, RAM).
