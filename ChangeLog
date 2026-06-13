@@ -1,3 +1,10 @@
+1.4.17  2026-06-13
+  - Setup wizard: fix Enter-on-default for pool URL, password, and threads (prompt
+    no longer uses the same buffer for default and input).
+  - Setup wizard: choose Pool vs Solo first; validate URLs and strip stray trailing
+    characters (e.g. "]" from bracketed defaults).
+  - Sanitize saved pool URLs at startup; setup abort exits cleanly instead of dumping usage.
+
 1.4.16  2026-06-13
   - Fix pool/stratum connection when config has empty "url" (ignore blank url/user/pass
     in JSON; fall back to default Vericonomy pool; always enable stratum for stratum+tcp URLs).

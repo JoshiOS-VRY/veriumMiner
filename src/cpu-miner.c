@@ -2977,8 +2977,10 @@ int main(int argc, char *argv[]) {
 					argv[0]);
 				show_usage_and_exit(1);
 			}
-			if (!onboard_interactive(defconfig, sizeof(defconfig)))
-				show_usage_and_exit(1);
+			if (!onboard_interactive(defconfig, sizeof(defconfig))) {
+				fprintf(stderr, "%s: setup cancelled or invalid.\n", argv[0]);
+				return 1;
+			}
 			parse_arg('c', defconfig);
 		}
 
@@ -3023,6 +3025,9 @@ int main(int argc, char *argv[]) {
 	}
 
 	srand((unsigned)time(NULL) ^ (unsigned)(uintptr_t)argv);
+
+	if (rpc_url)
+		verium_sanitize_mining_url(rpc_url);
 
 	if (rpc_url)
 		pools_set_primary(rpc_url);
