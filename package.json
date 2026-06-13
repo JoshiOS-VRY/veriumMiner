@@ -3,8 +3,8 @@
   "private": true,
   "description": "Multi-threaded CPU miner for Verium (scrypt^2).",
   "scripts": {
-    "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format": "node node_modules/prettier/bin/prettier.cjs --write .",
+    "format:check": "node node_modules/prettier/bin/prettier.cjs --check ."
   },
   "devDependencies": {
     "prettier": "^3.6.2"
