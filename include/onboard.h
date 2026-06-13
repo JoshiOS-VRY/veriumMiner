@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#define VERIUM_DEFAULT_POOL_URL "stratum+tcp://mine.vericonomy.com:3333"
+
 /* Interactive setup wizard; writes ~/.cpuminer/cpuminer-conf.json (or %APPDATA% on Windows). */
 bool onboard_interactive(char *out_config_path, size_t pathsz);
 

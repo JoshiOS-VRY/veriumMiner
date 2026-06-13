@@ -21,7 +21,7 @@
 #include <unistd.h>
 #endif
 
-#define ONBOARD_DEFAULT_POOL "stratum+tcp://mine.vericonomy.com:3333"
+#define ONBOARD_DEFAULT_POOL VERIUM_DEFAULT_POOL_URL
 
 static bool url_is_solo_rpc(const char *url)
 {
@@ -152,6 +152,10 @@ bool onboard_interactive(char *out_config_path, size_t pathsz)
 	if (!prompt("Mining URL (pool stratum+tcp://… or solo http://127.0.0.1:33987)",
 	            url, url, sizeof(url)))
 		return false;
+	if (!url[0]) {
+		fprintf(stderr, "Pool URL cannot be empty.\n");
+		return false;
+	}
 
 	solo = url_is_solo_rpc(url);
 	if (solo) {
@@ -224,6 +228,10 @@ bool onboard_interactive(char *out_config_path, size_t pathsz)
 	fprintf(f, "\t\"pass\": \"%s\",\n", pass_e);
 	if (solo && coinbase[0])
 		fprintf(f, "\t\"coinbase-addr\": \"%s\",\n", coinbase_e);
+	if (!url[0])
+		snprintf(url, sizeof(url), "%s", ONBOARD_DEFAULT_POOL);
+	if (!pass[0])
+		snprintf(pass, sizeof(pass), "x");
 	fprintf(f, "\t\"threads\": %s,\n", threads);
 	fprintf(f, "\t\"profile\": \"%s\",\n", solo ? "dedicated" : "background");
 	fprintf(f, "\t\"status-interval\": 30,\n");

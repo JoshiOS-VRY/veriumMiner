@@ -2743,7 +2743,13 @@ void parse_config(json_t *config, char *ref)
 		if (!val)
 			continue;
 		if (options[i].has_arg && json_is_string(val)) {
-			char *s = strdup(json_string_value(val));
+			const char *sval = json_string_value(val);
+			/* Do not let an empty url/user/pass in JSON wipe active settings
+			 * (common after hand-editing cpuminer-conf.json). */
+			if (!sval[0] && (options[i].val == 'o' || options[i].val == 'u' ||
+			                   options[i].val == 'p'))
+				continue;
+			char *s = strdup(sval);
 			if (!s)
 				break;
 			parse_arg(options[i].val, s);
@@ -2993,12 +2999,17 @@ int main(int argc, char *argv[]) {
 		applog(LOG_INFO, "Logging to file: %s", opt_log_file);
 	}
 
-	if (!opt_benchmark && !rpc_url) {
-		fprintf(stderr,
-			"%s: no pool URL. Use -o URL, -c config.json, or --setup\n"
-			"  (First run: open from Terminal, or double-click \"Verium Miner.app\" on macOS.)\n",
-			argv[0]);
-		show_usage_and_exit(1);
+	if (!opt_benchmark && (!rpc_url || !rpc_url[0])) {
+		free(rpc_url);
+		rpc_url = strdup(VERIUM_DEFAULT_POOL_URL);
+		applog(LOG_NOTICE,
+			"No pool URL in config; using default %s (run --setup to change)",
+			VERIUM_DEFAULT_POOL_URL);
+	}
+
+	if (!opt_benchmark && (!rpc_pass || !rpc_pass[0])) {
+		free(rpc_pass);
+		rpc_pass = strdup("x");
 	}
 
 	if (!opt_benchmark && config_has_placeholder_user()) {
@@ -3018,9 +3029,13 @@ int main(int argc, char *argv[]) {
 
 	if (!opt_benchmark && url_is_solo_rpc(rpc_url)) {
 		want_stratum = false;
+		have_stratum = false;
 		if (!pk_script_size)
 			applog(LOG_WARNING,
 				"Solo mode: set --coinbase-addr=V… (payout address required for getblocktemplate)");
+	} else if (!opt_benchmark && !strncasecmp(rpc_url, "stratum", 7)) {
+		want_stratum = true;
+		have_stratum = true;
 	}
 
 	if (!opt_benchmark && rpc_url && g_loaded_config_path[0])
@@ -3232,8 +3247,11 @@ int main(int argc, char *argv[]) {
 			applog(LOG_ERR, "stratum thread create failed");
 			return 1;
 		}
-		if (have_stratum)
+		if (have_stratum && rpc_url && rpc_url[0])
 			tq_push(thr_info[stratum_thr_id].q, strdup(rpc_url));
+		else if (want_stratum)
+			applog(LOG_ERR,
+				"Stratum enabled but pool URL missing — check config \"url\"");
 	}
 
 	if (opt_api_listen) {

@@ -1,3 +1,8 @@
+1.4.16  2026-06-13
+  - Fix pool/stratum connection when config has empty "url" (ignore blank url/user/pass
+    in JSON; fall back to default Vericonomy pool; always enable stratum for stratum+tcp URLs).
+  - Setup wizard: reject/sanitize empty pool URL and default empty password to "x".
+
 1.4.15  2026-06-13
   - Windows: embed Vericonomy logo in cpuminer.exe and veriumminer-setup.exe
     (res/cpuminer.ico; NSIS MUI_ICON / MUI_UNICON).
