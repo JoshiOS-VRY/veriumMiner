@@ -13,7 +13,7 @@ Pool mining is unchanged — see the [README](../README.md).
 
 | FireWorm / 1.4.8 symptom                               | Fixed in 1.4.19                                           |
 | ------------------------------------------------------ | --------------------------------------------------------- |
-| `recommended <= 1` on multi-core Ryzen/baremetal       | Yes — RAM + logical CPU auto-tune (since 1.4.11)        |
+| `recommended <= 1` on multi-core Ryzen/baremetal       | Yes — RAM + logical CPU auto-tune (since 1.4.11)          |
 | `--no-getwork` / `--no-gbt` silently ignored           | Yes — flags in CLI, JSON, and `--help`                    |
 | `--ryzen` missing                                      | Yes — AVX 3-way scrypt path restored                      |
 | Solo HTTP timeouts with pool-style `VAddr.worker` user | Ops: use `-O rpcuser:rpcpass` + `http://` URL (see below) |
