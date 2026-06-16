@@ -11,6 +11,8 @@ extern pthread_mutex_t stats_lock;
 void stats_init(void);
 void stats_set_thread_count(int n);
 void stats_set_status_interval(int seconds);
+/* log-frequency preset: ultra=5s, fast=15s, medium=30s, slow=60s; -1 if unknown */
+int stats_log_frequency_seconds(const char *mode);
 
 /* `hashes_per_sec` is instantaneous from the last scanhash batch. */
 void stats_record_hashrate(int thr_id, double hashes_per_sec);
@@ -41,5 +43,9 @@ extern time_t g_miner_start_time;
 extern volatile int g_pool_connected;
 extern char g_pool_status[64];
 extern char g_worker_name[128];
+extern int g_solo_mining;
+extern uint32_t g_solo_height;
+
+void stats_set_solo_height(uint32_t height);
 
 #endif /* VERIUM_STATS_H */

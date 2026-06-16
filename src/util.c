@@ -146,9 +146,9 @@ void applog(int prio, const char *fmt, ...)
 	if (0) {}
 #endif
 	else {
-		const char *ts_color = use_colors ? CL_GRY : "";
+		const char *ts_color = logfmt_ts_color();
 		const char *tag_color = logfmt_tag_color(prio);
-		const char *msg_color = "";
+		const char *msg_color = logfmt_msg_color(prio);
 		const char *tag = logfmt_tag(prio);
 		char *f;
 		int len;
@@ -156,22 +156,6 @@ void applog(int prio, const char *fmt, ...)
 		time_t now = time(NULL);
 
 		localtime_r(&now, &tm);
-
-		if (prio == LOG_BLUE)
-			prio = LOG_NOTICE;
-
-		switch (prio) {
-			case LOG_ERR:     msg_color = use_colors ? CL_WHT : ""; break;
-			case LOG_WARNING: msg_color = use_colors ? CL_YL2 : ""; break;
-			case LOG_NOTICE:  msg_color = use_colors ? CL_SIL : ""; break;
-			case LOG_INFO:    msg_color = use_colors ? CL_CY2 : ""; break;
-			case LOG_DEBUG:   msg_color = use_colors ? CL_GRY : ""; break;
-			default:          msg_color = ""; break;
-		}
-		if (!use_colors) {
-			tag_color = "";
-			msg_color = "";
-		}
 
 		len = 96 + (int) strlen(fmt) + 2;
 		f = (char*) malloc(len);
@@ -1770,8 +1754,11 @@ static bool stratum_set_difficulty(struct stratum_ctx *sctx, json_t *params)
 
 	/* Pool vardiff is authoritative; undo auto factor drops from legacy rejects. */
 	if (opt_diff_factor < 1.0) {
-		applog(LOG_NOTICE, "Pool difficulty %.8g (reset local factor %.4f -> 1)",
-			diff, opt_diff_factor);
+		char diffbuf[32];
+
+		logfmt_diff_decimal(diff, diffbuf, sizeof(diffbuf));
+		applog(LOG_NOTICE, "Pool difficulty %s (reset local factor %.4f -> 1)",
+			diffbuf, opt_diff_factor);
 		opt_diff_factor = 1.0;
 	}
 	restart_threads();

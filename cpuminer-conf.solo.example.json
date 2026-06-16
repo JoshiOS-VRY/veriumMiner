@@ -6,13 +6,22 @@
   "pass": "your_rpc_password",
   "coinbase-addr": "VYourPayoutAddress",
 
+  "no-getwork": true,
+  "no-stratum": true,
+  "no-longpoll": true,
+
   "_threads": "0 = auto (recommended): picks threads from P-cores, RAM and cache.",
   "threads": 0,
 
   "_profile": "'dedicated' is typical for solo rigs; 'background' keeps the machine responsive.",
   "profile": "dedicated",
 
-  "status-interval": 30,
+  "_log-frequency": "fast (15s) is a good solo default; ultra=5s, medium=30s, slow=60s",
+  "log-frequency": "fast",
+
+  "_color-theme": "light on macOS light terminal; dark on PowerShell; auto (default) or off",
+  "color-theme": "auto",
+
   "api-bind": "127.0.0.1:4048",
 
   "_log-file": "Optional: append plain-text logs for headless/service runs.",

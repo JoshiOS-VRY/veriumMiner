@@ -3,6 +3,9 @@
  */
 #include "stats.h"
 
+extern uint32_t solved_count;
+extern double net_diff;
+
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,6 +19,13 @@ time_t g_miner_start_time;
 volatile int g_pool_connected;
 char g_pool_status[64] = "initializing";
 char g_worker_name[128];
+int g_solo_mining;
+uint32_t g_solo_height;
+
+void stats_set_solo_height(uint32_t height)
+{
+	g_solo_height = height;
+}
 
 static int g_n_threads;
 static double g_thr_hps[TOPO_MAX_CPUS];
@@ -89,6 +99,21 @@ void stats_set_status_interval(int seconds)
 {
 	if (seconds > 0)
 		g_status_interval = seconds;
+}
+
+int stats_log_frequency_seconds(const char *mode)
+{
+	if (!mode || !mode[0])
+		return -1;
+	if (!strcasecmp(mode, "ultra"))
+		return 5;
+	if (!strcasecmp(mode, "fast"))
+		return 15;
+	if (!strcasecmp(mode, "medium"))
+		return 30;
+	if (!strcasecmp(mode, "slow"))
+		return 60;
+	return -1;
 }
 
 static void stats_update_ema_locked(double total_hps)
@@ -293,6 +318,7 @@ void stats_maybe_print_panel(bool force)
 	stats_get_shares(&acc, &rej);
 
 	logfmt_status_panel(
+		g_solo_mining != 0,
 		g_pool_connected != 0,
 		g_pool_status,
 		g_worker_name[0] ? g_worker_name : "-",

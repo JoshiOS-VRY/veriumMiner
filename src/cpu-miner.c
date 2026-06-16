@@ -13,6 +13,14 @@
 #include <cpuminer-config.h>
 #define _GNU_SOURCE
 
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || \
+    defined(__NetBSD__)
+#ifndef HAVE_OPTRESET
+#define HAVE_OPTRESET 1
+extern int optreset;
+#endif
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -156,6 +164,7 @@ char *rpc_user, *rpc_pass;
 char *short_url = NULL;
 static unsigned char pk_script[25] = { 0 };
 static size_t pk_script_size = 0;
+static char g_coinbase_addr[128] = { 0 };
 static char coinbase_sig[101] = { 0 };
 char *opt_cert;
 char *opt_proxy;
@@ -271,12 +280,14 @@ Options:\n\
       --no-redirect     Ignore pool URL redirect requests\n\
       --ryzen           Force AVX 3-way scrypt (skip AVX2 on Ryzen)\n\
   -q, --quiet           Minimal console output (status panel still available)\n\
-      --status-interval=N  Seconds between status summaries (default: 30)\n\
+      --log-frequency=MODE  Status cadence: ultra (5s), fast (15s), medium (30s), slow (60s)\n\
+      --status-interval=N  Exact seconds between status summaries (overrides --log-frequency)\n\
       --profile=MODE    background (default) or dedicated (higher CPU priority)\n\
       --tune            Print cache-aware thread recommendation at startup\n\
       --setup           Interactive configuration wizard (first run or changes)\n\
       --reconfigure     Same as --setup\n\
       --log-file=FILE   Also append plain-text logs to FILE (headless/service)\n\
+      --color-theme=MODE  Log colors: dark, light, auto (default), off\n\
   -D, --debug           Debug logging\n\
   -P, --protocol-dump   Verbose Stratum protocol log\n\
       --show-diff       Show share difficulty in logs\n\
@@ -314,6 +325,8 @@ static struct option const options[] = {
 	{ "api-bind", 1, NULL, 'b' },
 	{ "backup-url", 1, NULL, 1070 },
 	{ "tune", 0, NULL, 1071 },
+	{ "color-theme", 1, NULL, 1079 },
+	{ "log-frequency", 1, NULL, 1078 },
 	{ "status-interval", 1, NULL, 1072 },
 	{ "profile", 1, NULL, 1073 },
 	{ "setup", 0, NULL, 1074 },
@@ -617,7 +630,10 @@ static bool get_mininginfo(CURL *curl, struct work *work)
 					if (!opt_quiet) {
 						char netinfo[64] = { 0 };
 						char srate[32] = { 0 };
-						sprintf(netinfo, "diff %.2f", net_diff);
+						char diffbuf[32];
+
+						logfmt_diff_decimal(net_diff, diffbuf, sizeof(diffbuf));
+						snprintf(netinfo, sizeof(netinfo), "diff %s", diffbuf);
 						if (net_hashrate) {
 							format_hashrate(net_hashrate, srate);
 							strcat(netinfo, ", net ");
@@ -634,7 +650,8 @@ static bool get_mininginfo(CURL *curl, struct work *work)
 	return true;
 }
 
-#define BLOCK_VERSION_CURRENT 3
+/* Verium mainnet GBT reports version 7 (upstream Bitcoin cpuminer used 3). */
+#define BLOCK_VERSION_CURRENT 7
 
 static bool gbt_work_decode(const json_t *val, struct work *work)
 {
@@ -679,7 +696,6 @@ static bool gbt_work_decode(const json_t *val, struct work *work)
 		goto out;
 	}
 	work->height = (int) json_integer_value(tmp);
-	applog(LOG_BLUE, "Current block is %d", work->height);
 
 	tmp = json_object_get(val, "version");
 	if (!tmp || !json_is_integer(tmp)) {
@@ -694,6 +710,10 @@ static bool gbt_work_decode(const json_t *val, struct work *work)
 			applog(LOG_DEBUG, "Switching to getwork, gbt version %d", version);
 			have_gbt = false;
 			goto out;
+		} else if (!allow_getwork && have_gbt) {
+			applog(LOG_NOTICE,
+				"GBT block version %u (using node template; getwork disabled)",
+				version & 0xffU);
 		} else if (!version_force) {
 			applog(LOG_ERR, "Unrecognized block version: %u", version);
 			goto out;
@@ -921,6 +941,10 @@ static bool gbt_work_decode(const json_t *val, struct work *work)
 	}
 
 	rc = true;
+	if (!have_stratum) {
+		g_pool_connected = 1;
+		snprintf(g_pool_status, sizeof(g_pool_status), "connected");
+	}
 out:
 	/* Long polling */
 	tmp = json_object_get(val, "longpollid");
@@ -992,14 +1016,22 @@ static int share_result(int result, struct work *work, const char *reason)
 		pthread_mutex_unlock(&stats_lock);
 		logfmt_block_found(block_height, sharediff, net_diff);
 	} else if (block_share && !result) {
-		applog(LOG_WARNING,
-			"Block-level share rejected by pool — check stratum/node logs (height %u)",
-			(unsigned)block_height);
+		if (g_solo_mining)
+			applog(LOG_WARNING,
+				"Block rejected by node — check veriumd debug.log (height %u)",
+				(unsigned)block_height);
+		else
+			applog(LOG_WARNING,
+				"Block-level share rejected by pool — check stratum/node logs (height %u)",
+				(unsigned)block_height);
 	}
 
-	if (opt_showdiff)
-		snprintf(suppl, sizeof(suppl), "diff %.3f", sharediff);
-	else
+	if (opt_showdiff) {
+		char diffbuf[32];
+
+		logfmt_diff_decimal(sharediff, diffbuf, sizeof(diffbuf));
+		snprintf(suppl, sizeof(suppl), "diff %s", diffbuf);
+	} else
 		snprintf(suppl, sizeof(suppl), "%.2f%%",
 			(acc + rej) ? 100. * acc / (acc + rej) : 0.);
 
@@ -1023,7 +1055,7 @@ static int share_result(int result, struct work *work, const char *reason)
 			(unsigned long)acc,
 			(unsigned long)(acc + rej),
 			suppl, rate, pctbuf);
-		if (!result && rej > 3 &&
+		if (!g_solo_mining && !result && rej > 3 &&
 		    (acc + rej) && (100. * acc / (acc + rej)) < 90.0)
 			applog(LOG_WARNING, "High reject rate — only %.1f%% of shares accepted",
 				stats_accept_pct());
@@ -1293,6 +1325,38 @@ start:
 
 	// store work height in solo
 	get_mininginfo(curl, work);
+
+	if (g_solo_mining && rc) {
+		static uint32_t last_solo_height;
+		static bool solo_diff_logged;
+
+		stats_set_solo_height((uint32_t)work->height);
+		if (!solo_diff_logged && net_diff > 0.) {
+			char diffbuf[32];
+
+			logfmt_diff_decimal(net_diff, diffbuf, sizeof(diffbuf));
+			applog(LOG_INFO, "Network difficulty %s (solo mining target)",
+				diffbuf);
+			solo_diff_logged = true;
+		}
+		if (work->height && (uint32_t)work->height != last_solo_height) {
+			char detail[80];
+			char diffbuf[32];
+
+			last_solo_height = (uint32_t)work->height;
+			if (!opt_quiet) {
+				if (net_diff > 0.) {
+					logfmt_diff_decimal(net_diff, diffbuf, sizeof(diffbuf));
+					snprintf(detail, sizeof(detail),
+						" · net diff %s", diffbuf);
+				} else
+					detail[0] = '\0';
+				logfmt_new_block(short_url ? short_url : rpc_url,
+					algo_names[opt_algo],
+					(uint32_t)work->height, detail);
+			}
+		}
+	}
 
 	return rc;
 }
@@ -1571,8 +1635,9 @@ static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work,
 		}
 
 		if (stratum_diff != sctx->job.diff) {
-			char sdiff[32] = { 0 };
+			char sdiff[48] = { 0 };
 			char pctbuf[48] = { 0 };
+			char diffbuf[32], wirebuf[32];
 			// store for api stats
 			stratum_diff = sctx->job.diff;
 			if (opt_diff_factor < 1.0) {
@@ -1581,13 +1646,15 @@ static void stratum_gen_work(struct stratum_ctx *sctx, struct work *work,
 					opt_diff_factor);
 				opt_diff_factor = 1.0;
 			}
+			logfmt_diff_decimal(work->targetdiff, diffbuf, sizeof(diffbuf));
+			logfmt_diff_decimal(stratum_diff, wirebuf, sizeof(wirebuf));
 			if (opt_showdiff)
-				snprintf(sdiff, 32, " (effective %.8g)", work->targetdiff);
+				snprintf(sdiff, sizeof(sdiff), " (effective %s)", diffbuf);
 			if (net_diff > 0. && work->targetdiff > 0.)
 				snprintf(pctbuf, sizeof(pctbuf), " | pool %.4f%% of network",
 					100.0 * work->targetdiff / net_diff);
-			applog(LOG_INFO, "Pool difficulty %.8g (wire %.8g)%s%s",
-				work->targetdiff, stratum_diff, sdiff, pctbuf);
+			applog(LOG_INFO, "Pool difficulty %s (wire %s)%s%s",
+				diffbuf, wirebuf, sdiff, pctbuf);
 		}
 }
 
@@ -1990,11 +2057,16 @@ start:
 					start_diff = net_diff;
 					if (!opt_quiet) {
 						char netinfo[64] = { 0 };
+						char diffbuf[32];
 						if (net_diff > 0.) {
-							sprintf(netinfo, ", diff %.3f", net_diff);
+							logfmt_diff_decimal(net_diff, diffbuf, sizeof(diffbuf));
+							snprintf(netinfo, sizeof(netinfo), ", diff %s", diffbuf);
 						}
-						if (opt_showdiff)
-							sprintf(&netinfo[strlen(netinfo)], ", target %.3f", g_work.targetdiff);
+						if (opt_showdiff) {
+							logfmt_diff_decimal(g_work.targetdiff, diffbuf, sizeof(diffbuf));
+							snprintf(&netinfo[strlen(netinfo)], sizeof(netinfo) - strlen(netinfo),
+								", target %s", diffbuf);
+						}
 						{
 							char detail[80];
 							snprintf(detail, sizeof(detail), "%s", netinfo);
@@ -2188,10 +2260,12 @@ static void *stratum_thread(void *userdata)
 						last_bloc_height = stratum.bloc_height;
 						{
 							char detail[80];
-							if (net_diff > 0.)
+							char diffbuf[32];
+							if (net_diff > 0.) {
+								logfmt_diff_decimal(net_diff, diffbuf, sizeof(diffbuf));
 								snprintf(detail, sizeof(detail),
-									" · net diff %.6g", net_diff);
-							else
+									" · net diff %s", diffbuf);
+							} else
 								detail[0] = '\0';
 							logfmt_new_block(short_url, algo_names[opt_algo],
 								stratum.bloc_height, detail);
@@ -2329,6 +2403,32 @@ static void strhide(char *s)
 	while (*s) *s++ = '\0';
 }
 
+/* Hide -p / -O secrets in argv for ps(1); run after all getopt passes. */
+static void strhide_argv_secrets(int argc, char *argv[])
+{
+	int i;
+
+	for (i = 1; i < argc; i++) {
+		if ((!strcmp(argv[i], "-p") || !strcmp(argv[i], "--pass")) &&
+		    i + 1 < argc) {
+			strhide(argv[i + 1]);
+			i++;
+		} else if ((!strcmp(argv[i], "-O") || !strcmp(argv[i], "--userpass")) &&
+		           i + 1 < argc) {
+			char *colon = strchr(argv[i + 1], ':');
+			if (colon)
+				strhide(colon + 1);
+			i++;
+		} else if (!strncmp(argv[i], "--pass=", 7)) {
+			strhide(argv[i] + 7);
+		} else if (!strncmp(argv[i], "--userpass=", 11)) {
+			char *colon = strchr(argv[i], ':');
+			if (colon)
+				strhide(colon + 1);
+		}
+	}
+}
+
 void parse_arg(int key, char *arg)
 {
 	char *p;
@@ -2377,6 +2477,31 @@ void parse_arg(int key, char *arg)
 	case 1071:
 		opt_tune = true;
 		break;
+	case 1079: {
+		int theme = logfmt_color_theme_parse(arg);
+
+		if (theme < 0) {
+			applog(LOG_ERR,
+				"Invalid --color-theme '%s' (dark, light, auto, off)",
+				arg ? arg : "");
+			show_usage_and_exit(1);
+		}
+		logfmt_set_color_theme(theme);
+		break;
+	}
+	case 1078: {
+		int secs = stats_log_frequency_seconds(arg);
+
+		if (secs < 0) {
+			applog(LOG_ERR,
+				"Invalid --log-frequency '%s' (ultra, fast, medium, slow)",
+				arg ? arg : "");
+			show_usage_and_exit(1);
+		}
+		opt_status_interval = secs;
+		stats_set_status_interval(opt_status_interval);
+		break;
+	}
 	case 1072:
 		opt_status_interval = atoi(arg);
 		if (opt_status_interval < 5)
@@ -2399,7 +2524,6 @@ void parse_arg(int key, char *arg)
 		break;
 	case 'B':
 		opt_background = true;
-		use_colors = false;
 		break;
 	case 'c': {
 		json_error_t err;
@@ -2436,7 +2560,6 @@ void parse_arg(int key, char *arg)
 	case 'p':
 		free(rpc_pass);
 		rpc_pass = strdup(arg);
-		strhide(arg);
 		break;
 	case 'P':
 		opt_protocol = true;
@@ -2548,7 +2671,6 @@ void parse_arg(int key, char *arg)
 		strncpy(rpc_user, arg, p - arg);
 		free(rpc_pass);
 		rpc_pass = strdup(++p);
-		strhide(p);
 		break;
 	case 'x':			/* --proxy */
 		if (!strncasecmp(arg, "socks4://", 9))
@@ -2571,7 +2693,7 @@ void parse_arg(int key, char *arg)
 		opt_cert = strdup(arg);
 		break;
 	case 1002:
-		use_colors = false;
+		logfmt_set_color_theme(LOGFMT_THEME_OFF);
 		break;
 	case 1003:
 		want_longpoll = false;
@@ -2618,6 +2740,7 @@ void parse_arg(int key, char *arg)
 			fprintf(stderr, "invalid address -- '%s'\n", arg);
 			show_usage_and_exit(1);
 		}
+		snprintf(g_coinbase_addr, sizeof(g_coinbase_addr), "%s", arg);
 		break;
 	case 1015:			/* --coinbase-sig */
 		if (strlen(arg) + 1 > sizeof(coinbase_sig)) {
@@ -2640,7 +2763,6 @@ void parse_arg(int key, char *arg)
 		break;
 	case 'S':
 		use_syslog = true;
-		use_colors = false;
 		break;
 	case 1020:
 		p = strstr(arg, "0x");
@@ -2713,9 +2835,36 @@ static void parse_config_extras(json_t *config)
 		}
 	}
 
+	val = json_object_get(config, "color-theme");
+	if (json_is_string(val)) {
+		int theme = logfmt_color_theme_parse(json_string_value(val));
+
+		if (theme >= 0)
+			logfmt_set_color_theme(theme);
+		else
+			applog(LOG_WARNING,
+				"Unknown color-theme '%s' (dark, light, auto, off)",
+				json_string_value(val));
+	}
+
+	val = json_object_get(config, "log-frequency");
+	if (json_is_string(val)) {
+		int secs = stats_log_frequency_seconds(json_string_value(val));
+
+		if (secs > 0) {
+			opt_status_interval = secs;
+			stats_set_status_interval(opt_status_interval);
+		} else
+			applog(LOG_WARNING,
+				"Unknown log-frequency '%s' (ultra, fast, medium, slow)",
+				json_string_value(val));
+	}
+
 	val = json_object_get(config, "status-interval");
 	if (json_is_integer(val)) {
 		opt_status_interval = (int)json_integer_value(val);
+		if (opt_status_interval < 5)
+			opt_status_interval = 5;
 		stats_set_status_interval(opt_status_interval);
 	}
 
@@ -2993,11 +3142,17 @@ int main(int argc, char *argv[]) {
 		parse_cmdline(argc, argv);
 	}
 
+	strhide_argv_secrets(argc, argv);
+
+	logfmt_apply_color_theme(
+		opt_background ||
+		use_syslog ||
+		(opt_log_file && opt_log_file[0]));
+
 	if (opt_log_file && opt_log_file[0]) {
 		/* File logs are plain text; disable ANSI colors everywhere so both the
 		 * console and the file stay readable for headless/service runs. Opened
 		 * before the pool check so startup errors are captured too. */
-		use_colors = false;
 		applog_open_logfile(opt_log_file);
 		applog(LOG_INFO, "Logging to file: %s", opt_log_file);
 	}
@@ -3034,12 +3189,19 @@ int main(int argc, char *argv[]) {
 		pools_set_primary(rpc_url);
 
 	if (!opt_benchmark && url_is_solo_rpc(rpc_url)) {
+		g_solo_mining = 1;
 		want_stratum = false;
 		have_stratum = false;
 		if (!pk_script_size)
 			applog(LOG_WARNING,
 				"Solo mode: set --coinbase-addr=V… (payout address required for getblocktemplate)");
+		else if (g_coinbase_addr[0])
+			applog(LOG_NOTICE, "Solo mode: %s · payout %s",
+				rpc_url, g_coinbase_addr);
+		else
+			applog(LOG_NOTICE, "Solo mode: %s", rpc_url);
 	} else if (!opt_benchmark && !strncasecmp(rpc_url, "stratum", 7)) {
+		g_solo_mining = 0;
 		want_stratum = true;
 		have_stratum = true;
 	}
@@ -3201,7 +3363,9 @@ int main(int argc, char *argv[]) {
 		return 1;
 
 	stats_set_thread_count(opt_n_total_threads);
-	if (rpc_user)
+	if (g_solo_mining && g_coinbase_addr[0])
+		snprintf(g_worker_name, sizeof(g_worker_name), "%s", g_coinbase_addr);
+	else if (rpc_user)
 		snprintf(g_worker_name, sizeof(g_worker_name), "%s", rpc_user);
 
 	/* init workio thread info */
@@ -3220,6 +3384,10 @@ int main(int argc, char *argv[]) {
 		applog(LOG_ERR, "work thread create failed");
 		return 1;
 	}
+
+	if (g_solo_mining && rpc_url && !opt_quiet)
+		applog(LOG_INFO, "Connecting to node %s",
+			short_url ? short_url : rpc_url);
 
 	/* ESET-NOD32 Detects these 2 thread_create... */
 	if (want_longpoll && !have_stratum) {

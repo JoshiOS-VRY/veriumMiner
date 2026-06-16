@@ -17,6 +17,8 @@ file is the in-tree record of what was addressed.)
 | U3    | UX          | `stats_format_khs()` / unified kH/s in console and API                                                     |
 | U4    | UX          | EMA hashrate 60s and 900s in `stats.c`                                                                     |
 | U5/U7 | UX          | Periodic status panel (`stats_maybe_print_panel`), API `json`/`health`/`metrics`                           |
+| U9    | UX          | `--log-frequency` presets; `--color-theme` dark/light/auto/off; `NO_COLOR` support                         |
+| U10   | UX          | Solo status panel, decimal difficulty (`logfmt_diff_decimal`), block candidate/found logs                  |
 | U6    | UX          | Linux hwmon scan across `/sys/class/hwmon/*`                                                               |
 | U8    | UX          | Reject-rate warning in `share_result()`                                                                    |
 | R1    | Reliability | Pool list + failover (`pools.c`, `--backup-url`)                                                           |

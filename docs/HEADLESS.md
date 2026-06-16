@@ -35,12 +35,19 @@ unattended runs, enable file logging and pick a profile:
   "pass": "x",
   "threads": 0,
   "profile": "dedicated",
+  "log-frequency": "medium",
+  "color-theme": "auto",
   "log-file": "/var/log/veriumminer/miner.log"
 }
 ```
 
 - `profile`: `background` (default, keeps the machine responsive) or
   `dedicated` (higher CPU priority for mining-only rigs).
+- `log-frequency`: `ultra` (5s), `fast` (15s), `medium` (30s), `slow` (60s) —
+  how often the status panel prints hashrate and stats. Solo rigs often prefer
+  `fast`. Override with `"status-interval": N` for exact seconds.
+- `color-theme`: `dark`, `light` (macOS light terminal), `auto` (default), or
+  `off`. Honors `NO_COLOR` when set to `auto`.
 - `threads`: `0` auto-selects from CPU topology, cache, and RAM. Each default
   thread needs ~384 MB on ARM64 (NEON 3-way) or up to ~768 MB on x86_64 with
   AVX2 multi-lane ROM. On Raspberry Pi and similar SBCs, use `1` — see
@@ -97,7 +104,9 @@ printf 'json\n'    | nc -w 2 127.0.0.1 4048
 ```
 
 Or tail the log file you configured. The status panel prints hashrate (H/m),
-accepted/total shares, accept %, temperature, and uptime.
+solo stats (blocks found, net diff) or pool shares, accept %, temperature, and
+uptime. Use `"log-frequency": "fast"` for solo headless rigs if you want more
+frequent heartbeats.
 
 ## 5. Shutdown behavior
 

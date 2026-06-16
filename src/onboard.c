@@ -362,7 +362,8 @@ bool onboard_interactive(char *out_config_path, size_t pathsz)
 		fprintf(f, "\t\"coinbase-addr\": \"%s\",\n", coinbase_e);
 	fprintf(f, "\t\"threads\": %s,\n", threads);
 	fprintf(f, "\t\"profile\": \"%s\",\n", solo ? "dedicated" : "background");
-	fprintf(f, "\t\"status-interval\": 30,\n");
+	fprintf(f, "\t\"color-theme\": \"auto\",\n");
+	fprintf(f, "\t\"log-frequency\": \"medium\",\n");
 	fprintf(f, "\t\"api-bind\": \"127.0.0.1:4048\",\n");
 	fprintf(f, "\t\"quiet\": false\n");
 	fprintf(f, "}\n");

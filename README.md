@@ -106,7 +106,7 @@ Get-FileHash .\cpuminer.exe -Algorithm SHA256
 > and will be enabled once certificates are provisioned. Until then, verify with
 > `SHA256SUMS` and see [Troubleshooting](#troubleshooting) for antivirus notes.
 >
-> Docker: `docker run --rm ghcr.io/joshios-vry/veriumminer:1.4.11 -o stratum+tcp://mine.vericonomy.com:3333 -u VYourAddress.worker1 -p x -t 1`
+> Docker: `docker run --rm ghcr.io/joshios-vry/veriumminer:1.4.19 -o stratum+tcp://mine.vericonomy.com:3333 -u VYourAddress.worker1 -p x -t 1`
 > Raspberry Pi / SBC: see [docs/RASPBERRY_PI.md](docs/RASPBERRY_PI.md) (use `-t 1`; `.dockerignore` required for local `docker build`).
 
 ## Mining modes (pool and solo)
@@ -132,12 +132,20 @@ Requires a synced local node with RPC enabled. Mainnet default RPC port is
 
 ```sh
 ./cpuminer -o http://127.0.0.1:33987 -O rpcuser:rpcpassword \
-  --coinbase-addr=VYourPayoutAddress -t 0 --profile dedicated
+  --coinbase-addr=VYourPayoutAddress \
+  --no-getwork --no-stratum --no-longpoll \
+  -t 0 --profile dedicated
 ```
+
+For **veriumd** / Vericonomy wallet vault solo, use `http://` RPC (not Stratum),
+`-O rpcuser:rpcpassword` from `verium.conf` / `vericonomy.conf` (not your wallet
+address as the RPC user), and the FireWorm-style `--no-getwork --no-stratum
+--no-longpoll` flags. On macOS the wallet config is typically
+`~/Library/Application Support/Verium/vericonomy.conf` under `[verium]`.
 
 JSON config example: see [`cpuminer-conf.solo.example.json`](cpuminer-conf.solo.example.json).
 Full walkthrough: [`docs/SOLO_MINING.md`](docs/SOLO_MINING.md).  
-Baremetal fleet rollout: [`docs/BAREMETAL_SOLO.md`](docs/BAREMETAL_SOLO.md) (**upgrade to v1.4.11**).
+Baremetal fleet rollout: [`docs/BAREMETAL_SOLO.md`](docs/BAREMETAL_SOLO.md) (**v1.4.19**).
 
 On Windows, edit and run [`contrib/windows/mine-verium-solo.bat`](contrib/windows/mine-verium-solo.bat)
 (after `veriumd` is running).
@@ -160,6 +168,12 @@ operations:
 - **Monitoring API** — `summary`, `json`, `health`, and Prometheus-style
   `metrics` on port 4048
 - **Setup wizard** — `--setup` writes a starter `cpuminer-conf.json`
+- **Solo / veriumd** — getblocktemplate solo against local or remote `veriumd`
+  with `--coinbase-addr`, decimal difficulty in logs, and block candidate/found
+  messages when a hash meets network target
+- **Log UX** — `--log-frequency` (ultra/fast/medium/slow status cadence),
+  `--color-theme` (dark/light/auto/off; use `light` on macOS light terminals),
+  fixed-decimal difficulty display (`0.000066…`, not `6.6e-05`)
 - **ARM64 NEON 3-way scrypt** — Apple Silicon and Linux ARM64 use FireWorm71's
   validated NEON core (~384 MB/thread, 3 hashes per scan). Intel Macs use x86-64
   assembly when enabled; Apple Silicon uses C intrinsics (not GAS `.S` files).
@@ -333,7 +347,7 @@ pool connection, and exits — so service restarts are graceful.
 | Windows x86_64      | windows-mingw64          | MSYS2 / MinGW-w64                       |
 | FreeBSD x86_64      | freebsd-x86_64           | VM-based CI                             |
 
-**Version:** 1.4.11 (see `CMakeLists.txt`).
+**Version:** 1.4.19 (see `CMakeLists.txt` and `ChangeLog`).
 
 # Dependencies
 
@@ -514,9 +528,15 @@ Common ones:
 - `-t, --threads` — mining threads (`0` = auto from CPU topology and L3 cache)
 - `--setup` — interactive wizard writes the default config file (see below)
 - `--tune` — print recommended thread count at startup
-- `--status-interval` — seconds between status summaries (hashrate, shares, temp)
+- `--log-frequency` — status panel cadence: `ultra` (5s), `fast` (15s),
+  `medium` (30s, default), `slow` (60s)
+- `--status-interval` — exact seconds between status summaries (overrides
+  `--log-frequency`)
+- `--color-theme` — log colors: `dark` (default), `light` (macOS light terminal),
+  `auto` (dark + honors `NO_COLOR`), `off` (same as `--no-color`)
 - `--profile dedicated` — higher CPU priority for dedicated mining rigs
 - `--log-file FILE` — also append plain-text logs to FILE (headless/service)
+- `--show-diff` — show share difficulty on pool share lines
 - `--selftest` — verify the scrypt core against the golden vector, then exit (0 = OK)
 - `-B, --background` — detach and run in the background
 - `-c, --config` — JSON config file (see `cpuminer-conf.json`)
@@ -573,6 +593,9 @@ the `http_proxy` / `all_proxy` environment variables are honored.
 | **Large pages not used (slower hashrate)**                             | On Linux, grant locked-memory limits (the systemd unit sets `LimitMEMLOCK=infinity`) and enable hugepages. On Windows, run elevated once so the "Lock pages in memory" privilege can be acquired.                                                                                                           |
 | **All shares rejected**                                                | Check the wallet address (`user`) and that the pool URL/port are correct; watch for "High reject rate" warnings in the log.                                                                                                                                                                                 |
 | **macOS: “Verium Miner is damaged”**                                   | Not corrupted — macOS blocked an unsigned download. Use **`Verium Miner.command`**, or run `xattr -dr com.apple.quarantine /path/to/extracted/folder`, then right-click the app → **Open** once.                                                                                                            |
+| **macOS: log text hard to read (light terminal)**                      | Use `--color-theme=light` or set `"color-theme": "light"` in config; or `--no-color` for plain text.                                                                                                                                                                                                       |
+| **Solo: `401` / `veriumwallet` auth failed**                           | Use `-O rpcuser:rpcpassword` from `verium.conf` / `vericonomy.conf`, not your wallet address. URL must be `http://127.0.0.1:33987`. Add `--no-getwork --no-stratum --no-longpoll` for veriumd vault.                                                                                                        |
+| **Solo: `Unrecognized block version: 7`**                            | Upgrade to **v1.4.19** (GBT block version support).                                                                                                                                                                                                                                                       |
 | **Change thread count after setup**                                    | Double-click **`Change Settings.command`** (macOS), run `./cpuminer --setup`, edit `"threads"` in `~/.cpuminer/cpuminer-conf.json` (`0` = auto), or pass `-t N` for a one-off override.                                                                                                                     |
 
 For headless setup details and more, see [`docs/HEADLESS.md`](docs/HEADLESS.md).
