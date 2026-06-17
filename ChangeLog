@@ -1,3 +1,6 @@
+1.4.20  2026-06-17
+  - Solo GBT: include Verium nTime in coinbase so submitblock is accepted by veriumd.
+  - Solo GBT: encode submitblock header without mutating work->data (safe retries).
 1.4.19  2026-06-16
   - Solo / veriumd: fix CLI -O RPC credentials and --coinbase-addr being wiped on
     second parse (macOS optreset); accept GBT block version 7 from veriumd.
