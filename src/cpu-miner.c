@@ -862,7 +862,8 @@ static bool gbt_work_decode(const json_t *val, struct work *work)
 	}
 
 	n = varint_encode(txc_vi, 1 + tx_count);
-	work->txs = (char*) malloc(2 * (n + cbtx_size + tx_size) + 1);
+	/* +2 hex chars for Verium vchBlockSig (empty varint 0) appended after vtx */
+	work->txs = (char*) malloc(2 * (n + cbtx_size + tx_size) + 1 + 2);
 	if (!work->txs) {
 		applog(LOG_ERR, "out of memory building tx blob");
 		goto out;
@@ -902,6 +903,10 @@ static bool gbt_work_decode(const json_t *val, struct work *work)
 			work->txs[txs_len] = '\0';
 		}
 	}
+	/* Verium CBlock: vchBlockSig after vtx (Peercoin); empty sig = compact-size 0 → "00" */
+	work->txs[txs_len++] = '0';
+	work->txs[txs_len++] = '0';
+	work->txs[txs_len] = '\0';
 	n = 1 + tx_count;
 	while (n > 1) {
 		if (n % 2) {

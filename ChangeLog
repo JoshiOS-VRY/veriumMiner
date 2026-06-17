@@ -1,3 +1,8 @@
+1.4.21  2026-06-17
+  - Solo GBT: append empty Verium vchBlockSig to submitblock payload (fixes
+    "Block decode failed" after nTime coinbase fix).
+  - Build: run Prettier --write on build instead of failing format-check.
+
 1.4.20  2026-06-17
   - Solo GBT: include Verium nTime in coinbase so submitblock is accepted by veriumd.
   - Solo GBT: encode submitblock header without mutating work->data (safe retries).
