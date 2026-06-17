@@ -790,16 +790,18 @@ static bool gbt_work_decode(const json_t *val, struct work *work)
 			applog(LOG_ERR, "out of memory building coinbase");
 			goto out;
 		}
+		/* Verium tx wire format: version, nTime, vin, vout, locktime (not Bitcoin). */
 		le32enc((uint32_t *)cbtx, 1); /* version */
-		cbtx[4] = 1; /* in-counter */
-		memset(cbtx+5, 0x00, 32); /* prev txout hash */
-		le32enc((uint32_t *)(cbtx+37), 0xffffffff); /* prev txout index */
-		cbtx_size = 43;
+		le32enc((uint32_t *)(cbtx + 4), curtime); /* nTime */
+		cbtx[8] = 1; /* in-counter */
+		memset(cbtx + 9, 0x00, 32); /* prev txout hash */
+		le32enc((uint32_t *)(cbtx + 41), 0xffffffff); /* prev txout index */
+		cbtx_size = 47;
 		/* BIP 34: height in coinbase */
 		for (n = work->height; n; n >>= 8)
 			cbtx[cbtx_size++] = n & 0xff;
-		cbtx[42] = cbtx_size - 43;
-		cbtx[41] = cbtx_size - 42; /* scriptsig length */
+		cbtx[46] = cbtx_size - 47;
+		cbtx[45] = cbtx_size - 46; /* scriptsig length */
 		le32enc((uint32_t *)(cbtx+cbtx_size), 0xffffffff); /* sequence */
 		cbtx_size += 4;
 		cbtx[cbtx_size++] = 1; /* out-counter */
@@ -818,7 +820,7 @@ static bool gbt_work_decode(const json_t *val, struct work *work)
 		int xsig_len = 0;
 		if (*coinbase_sig) {
 			n = (int) strlen(coinbase_sig);
-			if (cbtx[41] + xsig_len + n <= 100) {
+			if (cbtx[45] + xsig_len + n <= 100) {
 				memcpy(xsig+xsig_len, coinbase_sig, n);
 				xsig_len += n;
 			} else {
@@ -836,7 +838,7 @@ static bool gbt_work_decode(const json_t *val, struct work *work)
 					applog(LOG_ERR, "JSON invalid coinbaseaux");
 					break;
 				}
-				if (cbtx[41] + xsig_len + n <= 100) {
+				if (cbtx[45] + xsig_len + n <= 100) {
 					memcpy(xsig+xsig_len, buf, n);
 					xsig_len += n;
 				}
@@ -844,12 +846,12 @@ static bool gbt_work_decode(const json_t *val, struct work *work)
 			}
 		}
 		if (xsig_len) {
-			unsigned char *ssig_end = cbtx + 42 + cbtx[41];
-			int push_len = cbtx[41] + xsig_len < 76 ? 1 :
-			               cbtx[41] + 2 + xsig_len > 100 ? 0 : 2;
+			unsigned char *ssig_end = cbtx + 46 + cbtx[45];
+			int push_len = cbtx[45] + xsig_len < 76 ? 1 :
+			               cbtx[45] + 2 + xsig_len > 100 ? 0 : 2;
 			n = xsig_len + push_len;
-			memmove(ssig_end + n, ssig_end, cbtx_size - 42 - cbtx[41]);
-			cbtx[41] += n;
+			memmove(ssig_end + n, ssig_end, cbtx_size - 46 - cbtx[45]);
+			cbtx[45] += n;
 			if (push_len == 2)
 				*(ssig_end++) = 0x4c; /* OP_PUSHDATA1 */
 			if (push_len)
@@ -930,6 +932,7 @@ static bool gbt_work_decode(const json_t *val, struct work *work)
 	}
 	for (i = 0; i < ARRAY_SIZE(work->target); i++)
 		work->target[7 - i] = be32dec(target + i);
+	work->targetdiff = target_to_diff(work->target);
 
 	tmp = json_object_get(val, "workid");
 	if (tmp) {
@@ -1161,11 +1164,13 @@ static bool submit_upstream_work(CURL *curl, struct work *work)
 	} else if (work->txs) { /* gbt */
 
 		char data_str[2 * sizeof(work->data) + 1];
+		uint32_t hdr[20];
 		char *req;
 
-		for (i = 0; i < ARRAY_SIZE(work->data); i++)
-			be32enc(work->data + i, work->data[i]);
-		bin2hex(data_str, (unsigned char *)work->data, 80);
+		/* Encode header without mutating work->data (retries must stay valid). */
+		for (i = 0; i < 20; i++)
+			be32enc(hdr + i, work->data[i]);
+		bin2hex(data_str, (unsigned char *)hdr, 80);
 		if (work->workid) {
 			char *params;
 			val = json_object();
