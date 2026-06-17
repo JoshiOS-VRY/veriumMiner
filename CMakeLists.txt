@@ -419,12 +419,23 @@ endif()
 
 find_program(NPM_EXECUTABLE npm)
 if(NPM_EXECUTABLE AND EXISTS "${CMAKE_SOURCE_DIR}/package.json")
-    add_custom_target(format-check
-        COMMAND ${NPM_EXECUTABLE} run format:check
+    set(_VRM_PRETTIER "${CMAKE_SOURCE_DIR}/node_modules/prettier/bin/prettier.cjs")
+    if(NOT EXISTS "${_VRM_PRETTIER}")
+        add_custom_target(npm-deps
+            COMMAND ${NPM_EXECUTABLE} ci
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+            COMMENT "Installing npm dependencies (prettier)"
+        )
+    endif()
+    add_custom_target(format
+        COMMAND ${NPM_EXECUTABLE} run format
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        COMMENT "Checking formatting with Prettier"
+        COMMENT "Formatting sources with Prettier"
     )
-    add_dependencies(cpuminer format-check)
+    if(TARGET npm-deps)
+        add_dependencies(format npm-deps)
+    endif()
+    add_dependencies(cpuminer format)
 endif()
 
 message(STATUS "veriumMiner: ASM=${VRM_USE_ASM} AVX=${USE_AVX} AVX2=${USE_AVX2} "
