@@ -1,3 +1,7 @@
+1.4.23  2026-11-25
+  - cppcheck: initialize the scrypt header before the midstate hash, and stop
+    using buffers when allocation fails.
+
 1.4.22  2026-11-25
   - Scratchpads request real 2 MB pages. Windows MEM_LARGE_PAGES sizes are
     rounded to GetLargePageMinimum() (4 KB rounding made the call fail).
