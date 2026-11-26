@@ -350,7 +350,7 @@ pool connection, and exits — so service restarts are graceful.
 | ------------------- | ------------------------ | --------------------------------------- |
 | Linux x86_64        | Linux x86_64 (GCC/Clang) | SSE2/AVX/AVX2 assembly when enabled     |
 | Linux ARM64         | Linux ARM64 (GCC)        | NEON 3-way (~384 MB/thread)             |
-| macOS Apple Silicon | macOS Apple Silicon      | NEON 3-way (`macos-14`)                 |
+| macOS Apple Silicon | macOS Apple Silicon      | NEON 3-way (`macos-15`)                 |
 | macOS Intel         | macOS Intel              | x86-64 AVX2 assembly (`macos-15-intel`) |
 | Windows x86_64      | windows-mingw64          | MSYS2 / MinGW-w64                       |
 | FreeBSD x86_64      | freebsd-x86_64           | VM-based CI                             |

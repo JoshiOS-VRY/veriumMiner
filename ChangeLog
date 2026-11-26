@@ -1,3 +1,7 @@
+1.4.25  2026-11-25
+  - CI/release: macOS Apple Silicon jobs use macos-15. GitHub retired the
+    macos-14 runner on 2026-11-02.
+
 1.4.24  2026-11-25
   - cppcheck: exit if the API allow-list allocation fails. proper_exit was
     not treated as ending the null path.
