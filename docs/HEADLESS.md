@@ -49,8 +49,8 @@ unattended runs, enable file logging and pick a profile:
 - `color-theme`: `dark`, `light` (macOS light terminal), `auto` (default), or
   `off`. Honors `NO_COLOR` when set to `auto`.
 - `threads`: `0` auto-selects from CPU topology, cache, and RAM. Each default
-  thread needs ~384 MB on ARM64 (NEON 3-way) or up to ~768 MB on x86_64 with
-  AVX2 multi-lane ROM. On Raspberry Pi and similar SBCs, use `1` — see
+  thread needs ~384 MB on ARM64 (NEON 3-way) or 384–768 MB on x86_64 (3-way or
+  6-way; AVX2 builds pick at startup). On Raspberry Pi and similar SBCs, use `1` — see
   [RASPBERRY_PI.md](RASPBERRY_PI.md).
 
 ## 3. Run it as a service

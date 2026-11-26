@@ -93,12 +93,13 @@ version will solo mine until this works.
 | `--no-stratum`        | Never negotiate Stratum on HTTP                                         |
 | `--no-longpoll`       | Poll on scantime instead of long-poll hang                              |
 | `-t 0`                | Auto: min(logical CPUs, free RAM ÷ scratchpad) — or set explicit `-t N` |
-| `--ryzen`             | AVX 3-way on AMD Ryzen (try with/without on Zen 3+)                     |
+| `--ryzen`             | Force AVX 3-way. AVX2 builds already benchmark 3-way vs 6-way unless `--no-autotune` |
 | `--profile dedicated` | Higher CPU priority for mining rigs                                     |
 | `--log-frequency`     | Status cadence: `fast` (15s) recommended for solo headless              |
 
-Use `--tune` once per host to print the auto recommendation, or keep explicit `-t`
-if you already benchmarked FireWorm settings.
+AVX2 builds benchmark 3-way against 6-way at startup and size the scratchpad from
+the winner. `--tune` still prints the thread recommendation. Keep an explicit `-t`
+if you already know the thread count you want.
 
 ### JSON config (systemd / fleet deploy)
 

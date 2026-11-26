@@ -27,6 +27,9 @@ file is the in-tree record of what was addressed.)
 | R5    | Reliability | `watchdog_thread`: stall detection + status tick                                                           |
 | R6/R7 | Reliability | API `json`, `health`, `metrics`; structured summary fields                                                 |
 | P6    | Performance | ARM64 NEON 3-way scrypt (`scrypt-aarch64-neon.c`), 3-way equiv test, ~384 MB/thread on aarch64             |
+| P9    | Performance | 2 MB scratchpads: Windows large-page size, Linux hugetlb/THP, macOS superpages                            |
+| P10   | Performance | AVX2 3-way vs 6-way autotune (`scrypt_measure_lanes`); AVX-only ROM is 3 lanes                             |
+| P11   | Performance | x86-64 scrypt prefetch of the second ROM half during the random-lookup pass                                |
 
 ## Deferred (consensus or scope)
 

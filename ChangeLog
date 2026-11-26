@@ -1,3 +1,16 @@
+1.4.22  2026-11-25
+  - Scratchpads request real 2 MB pages. Windows MEM_LARGE_PAGES sizes are
+    rounded to GetLargePageMinimum() (4 KB rounding made the call fail).
+    Linux uses explicit hugepages when they are reserved, otherwise
+    transparent huge pages. macOS tries 2 MB superpages.
+  - AVX2 builds benchmark 3-way vs 6-way at startup and keep the lane count
+    with the higher machine hashrate (per-thread speed times how many
+    scratchpads fit in RAM). --no-autotune skips it; --ryzen still forces
+    3-way.
+  - x86-64 scrypt cores prefetch the second half of each ROM block during
+    the random-lookup pass.
+  - AVX-only CPUs allocate a 3-lane ROM instead of a 6-lane one.
+
 1.4.21  2026-06-17
   - Solo GBT: append empty Verium vchBlockSig to submitblock payload (fixes
     "Block decode failed" after nTime coinbase fix).

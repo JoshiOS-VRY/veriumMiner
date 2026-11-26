@@ -130,6 +130,7 @@ bool opt_randomize = false;
 static int opt_retries = -1;
 static int opt_fail_pause = 30;
 static bool opt_tune = false;
+static bool opt_no_autotune = false;
 static int opt_status_interval = 30;
 static bool opt_setup = false;
 static bool opt_url_from_cli = false;
@@ -279,6 +280,7 @@ Options:\n\
       --no-stratum      Disable Stratum\n\
       --no-redirect     Ignore pool URL redirect requests\n\
       --ryzen           Force AVX 3-way scrypt (skip AVX2 on Ryzen)\n\
+      --no-autotune     Skip the 3-way vs 6-way lane benchmark\n\
   -q, --quiet           Minimal console output (status panel still available)\n\
       --log-frequency=MODE  Status cadence: ultra (5s), fast (15s), medium (30s), slow (60s)\n\
       --status-interval=N  Exact seconds between status summaries (overrides --log-frequency)\n\
@@ -325,6 +327,7 @@ static struct option const options[] = {
 	{ "api-bind", 1, NULL, 'b' },
 	{ "backup-url", 1, NULL, 1070 },
 	{ "tune", 0, NULL, 1071 },
+	{ "no-autotune", 0, NULL, 1080 },
 	{ "color-theme", 1, NULL, 1079 },
 	{ "log-frequency", 1, NULL, 1078 },
 	{ "status-interval", 1, NULL, 1072 },
@@ -2487,6 +2490,9 @@ void parse_arg(int key, char *arg)
 	case 1071:
 		opt_tune = true;
 		break;
+	case 1080:
+		opt_no_autotune = true;
+		break;
 	case 1079: {
 		int theme = logfmt_color_theme_parse(arg);
 
@@ -3221,6 +3227,30 @@ int main(int argc, char *argv[]) {
 			"Config: %s — change threads: edit \"threads\" in this file or run %s --setup",
 			g_loaded_config_path, argv[0]);
 
+	scrypt_prepare_huge_pages(1);
+	if (opt_algo == ALGO_SCRYPT && !opt_no_autotune && scrypt_lanes_tunable()) {
+		double h6 = 0.0, h3 = 0.0;
+
+		applog(LOG_NOTICE,
+			"Tuning scrypt lanes (3-way vs 6-way, one thread, may take several seconds)...");
+		if (scrypt_measure_lanes(opt_scrypt_n, &h6, &h3)) {
+			int t6 = topo_recommended_threads(scrypt_scratchpad_bytes_for(opt_scrypt_n, 6));
+			int t3 = topo_recommended_threads(scrypt_scratchpad_bytes_for(opt_scrypt_n, 3));
+			double score6 = h6 * (double)t6;
+			double score3 = h3 * (double)t3;
+			int lanes = (score3 > score6 * 1.04) ? 3 : 6;
+
+			scrypt_set_lane_override(lanes);
+			applog(LOG_NOTICE,
+				"Scrypt tune: 6-way %.1f H/s x %d = %.1f, 3-way %.1f H/s x %d = %.1f — using %d-way",
+				h6, t6, score6, h3, t3, score3, lanes);
+		} else {
+			scrypt_set_lane_override(3);
+			applog(LOG_WARNING,
+				"Scrypt tune did not finish; using 3-way so the scratchpad stays smaller");
+		}
+	}
+
 	if (!opt_n_threads) {
 		int rec = topo_recommended_threads(scrypt_scratchpad_bytes(opt_scrypt_n));
 		opt_n_threads = rec > 0 ? rec : num_cpus;
@@ -3251,8 +3281,9 @@ int main(int argc, char *argv[]) {
 		size_t spb = scrypt_scratchpad_bytes(opt_scrypt_n);
 		double sp_mb = spb / (1024.0 * 1024.0);
 		applog(LOG_NOTICE,
-			"Scrypt scratchpad: %.0f MB per default thread, ~%.0f MB min for %d worker(s) (N=%d)",
-			sp_mb, sp_mb * opt_n_threads, opt_n_total_threads, opt_scrypt_n);
+			"Scrypt scratchpad: %.0f MB/thread (%d-way), ~%.0f MB for %d default worker(s) (N=%d)",
+			sp_mb, scrypt_rom_lane_count(), sp_mb * opt_n_threads,
+			opt_n_threads, opt_scrypt_n);
 		if (tp) {
 			if (tp->performance_cpus > 0
 					&& tp->performance_cpus < tp->logical_cpus)

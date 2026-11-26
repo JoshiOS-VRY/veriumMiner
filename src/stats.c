@@ -359,11 +359,12 @@ char *stats_json_summary(void)
 				"\"hashrate_ema_900s\":%.2f,\"accepted\":%u,\"rejected\":%u,"
 				"\"accept_pct\":%.2f,\"uptime_sec\":%ld,\"pool_connected\":%d,"
 				"\"pool_status\":\"%s\",\"worker\":\"%s\",\"temp_c\":null,"
-				"\"threads\":%d}",
+				"\"threads\":%d,\"scrypt_lanes\":%d,\"large_pages\":%d}",
 				total, ema60, ema900,
 				(unsigned)acc, (unsigned)rej,
 				stats_accept_pct(), (long)up, g_pool_connected,
-				pool_esc, worker_esc, g_n_threads);
+				pool_esc, worker_esc, g_n_threads,
+				scrypt_rom_lane_count(), scrypt_large_pages_active());
 			return buf;
 		}
 		snprintf(buf, 2048,
@@ -371,11 +372,12 @@ char *stats_json_summary(void)
 			"\"hashrate_ema_900s\":%.2f,\"accepted\":%u,\"rejected\":%u,"
 			"\"accept_pct\":%.2f,\"uptime_sec\":%ld,\"pool_connected\":%d,"
 			"\"pool_status\":\"%s\",\"worker\":\"%s\",\"temp_c\":%.1f,"
-			"\"threads\":%d}",
+			"\"threads\":%d,\"scrypt_lanes\":%d,\"large_pages\":%d}",
 			total, ema60, ema900,
 			(unsigned)acc, (unsigned)rej,
 			stats_accept_pct(), (long)up, g_pool_connected,
-			pool_esc, worker_esc, (double)temp, g_n_threads);
+			pool_esc, worker_esc, (double)temp, g_n_threads,
+			scrypt_rom_lane_count(), scrypt_large_pages_active());
 	}
 	return buf;
 }

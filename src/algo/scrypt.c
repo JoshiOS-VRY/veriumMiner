@@ -27,15 +27,20 @@
  * online backup system.
  */
 
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
+
 #include "miner.h"
 
 bool opt_ryzen = false;
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(__APPLE__)
 #include <sys/mman.h>
 #endif
 #ifdef WIN32
@@ -45,7 +50,21 @@ bool opt_ryzen = false;
 #include <windows.h>
 #endif
 #if defined(__APPLE__)
-#include <stdlib.h>
+#include <mach/vm_statistics.h>
+#ifndef VM_FLAGS_SUPERPAGE_SIZE_2MB
+#define VM_FLAGS_SUPERPAGE_SIZE_2MB (2 << 16)
+#endif
+#endif
+#if defined(__linux__)
+#ifndef MAP_HUGE_SHIFT
+#define MAP_HUGE_SHIFT 26
+#endif
+#ifndef MAP_HUGE_2MB
+#define MAP_HUGE_2MB (21 << MAP_HUGE_SHIFT)
+#endif
+#ifndef MAP_ANONYMOUS
+#define MAP_ANONYMOUS 0x20
+#endif
 #endif
 
 /* Huge-page size used to hint the kernel for the scrypt scratchpad. */
@@ -531,32 +550,52 @@ static inline void scrypt_core(uint32_t *X, uint32_t *V, int N)
 #endif
 
 /*
- * Bytes of V (scrypt ROM) required for the active SIMD core.
- * x86-64 asm uses N*128 for 1-way and N*6*128 for 3-way/6-way (see scrypt_core*
- * leaq/shl setup). Allocating SCRYPT_MAX_WAYS (24) per thread reserved ~4x more
- * than the AVX2 path touches and inflated process memory (e.g. ~12 GB for 16
- * threads). scanhash still uses SCRYPT_MAX_WAYS for stack layout; only the
- * heap scratchpad is sized to rom_lanes.
+ * Bytes of V (scrypt ROM) touched by one scrypt_core* call.
+ * x86-64 assembly:
+ *   1-way: N * 128
+ *   3-way: N * 3 * 128   (AVX; stride 3*128)
+ *   6-way: N * 6 * 128   (AVX2; stride 6*128)
+ * 12-way and 24-way hashing reuse that ROM, so the scratchpad stays 3 or 6
+ * lanes rather than SCRYPT_MAX_WAYS (12 / 24). Treating every throughput >= 3
+ * as 6 lanes doubled RAM on AVX-only CPUs.
+ *
+ * g_scrypt_lanes_override is the autotune choice (1, 3, or 6). --ryzen wins.
  */
+static int g_scrypt_lanes_override;
+
 int scrypt_rom_lane_count(void)
 {
 #if defined(USE_ASM) && defined(__x86_64__)
+	int tp;
+
 	if (opt_ryzen)
 		return 3;
-	int tp = scrypt_best_throughput();
-	if (tp >= 3)
+	if (g_scrypt_lanes_override > 0)
+		return g_scrypt_lanes_override;
+	tp = scrypt_best_throughput();
+	if (tp >= 6)
 		return 6;
+	if (tp >= 3)
+		return 3;
 	return 1;
 #else
+	if (g_scrypt_lanes_override > 0)
+		return g_scrypt_lanes_override;
 	return SCRYPT_MAX_WAYS > 0 ? SCRYPT_MAX_WAYS : 1;
 #endif
 }
 
 int scrypt_rom_lane_count_for(int force_throughput)
 {
-	if (force_throughput == 1)
-		return 1;
+	if (force_throughput == 1 || force_throughput == 3 || force_throughput == 6)
+		return force_throughput;
 	return scrypt_rom_lane_count();
+}
+
+void scrypt_set_lane_override(int lanes)
+{
+	if (lanes == 1 || lanes == 3 || lanes == 6)
+		g_scrypt_lanes_override = lanes;
 }
 
 size_t scrypt_scratchpad_bytes(int N)
@@ -570,16 +609,371 @@ size_t scrypt_scratchpad_bytes_for(int N, int force_throughput)
 }
 
 /*
- * Allocate the scrypt scratchpad. On Linux the buffer is aligned to a
- * huge-page boundary and the kernel is asked to back it with transparent
- * huge pages. Windows may use MEM_LARGE_PAGES when permitted.
- * The returned pointer must be released with scrypt_buffer_free().
+ * Scratchpad allocator.
+ *
+ * Verium's ROM is 128 MB per lane (N = 2^20). Random lookups in the second
+ * scrypt pass thrash a 4 KB TLB, so 2 MB pages are a large fraction of
+ * hashrate. Hash regression tests leave preparation off and keep the old
+ * lazy commit; main() turns it on before tuning and mining.
+ *
+ * Windows MEM_LARGE_PAGES requires the size to be a multiple of
+ * GetLargePageMinimum(). Rounding only to 4 KB made that call fail even
+ * when "Lock pages in memory" was granted.
  */
+enum {
+	SCRYPT_KIND_MALLOC = 1,
+	SCRYPT_KIND_VIRTUAL = 2,
+	SCRYPT_KIND_MMAP = 3
+};
+
+enum {
+	SCRYPT_PAGES_4K = 0,
+	SCRYPT_PAGES_HUGE = 1,
+	SCRYPT_PAGES_THP = 2
+};
+
+#define SCRYPT_MEM_SLOTS (MAX_CPUS + 8)
+
+struct scrypt_memslot {
+	unsigned char *ptr;
+	size_t bytes;
+	int kind;
+	int used;
+};
+
+static struct scrypt_memslot g_scrypt_slots[SCRYPT_MEM_SLOTS];
+static pthread_mutex_t g_scrypt_mem_lock = PTHREAD_MUTEX_INITIALIZER;
 static int g_scrypt_large_pages;
+static int g_scrypt_prepare_pages;
+#if defined(WIN32)
+static unsigned long g_scrypt_page_err;
+#endif
 
 int scrypt_large_pages_active(void)
 {
 	return g_scrypt_large_pages;
+}
+
+void scrypt_prepare_huge_pages(int enable)
+{
+	g_scrypt_prepare_pages = enable ? 1 : 0;
+}
+
+static int scrypt_track(unsigned char *p, size_t bytes, int kind)
+{
+	int i;
+
+	if (!p)
+		return 0;
+	pthread_mutex_lock(&g_scrypt_mem_lock);
+	for (i = 0; i < SCRYPT_MEM_SLOTS; i++) {
+		if (!g_scrypt_slots[i].used) {
+			g_scrypt_slots[i].used = 1;
+			g_scrypt_slots[i].ptr = p;
+			g_scrypt_slots[i].bytes = bytes;
+			g_scrypt_slots[i].kind = kind;
+			pthread_mutex_unlock(&g_scrypt_mem_lock);
+			return 1;
+		}
+	}
+	pthread_mutex_unlock(&g_scrypt_mem_lock);
+	return 0;
+}
+
+static void scrypt_discard(unsigned char *p, size_t bytes, int kind)
+{
+	if (!p)
+		return;
+	if (kind == SCRYPT_KIND_MMAP) {
+#if defined(__linux__) || defined(__APPLE__)
+		munmap(p, bytes);
+#endif
+	} else if (kind == SCRYPT_KIND_VIRTUAL) {
+#if defined(WIN32)
+		VirtualFree(p, 0, MEM_RELEASE);
+#endif
+	} else {
+		free(p);
+	}
+}
+
+static void scrypt_note_pages(int mode)
+{
+	static int logged;
+	int do_log = 0;
+
+	if (mode == SCRYPT_PAGES_HUGE || mode == SCRYPT_PAGES_THP)
+		g_scrypt_large_pages = 1;
+	pthread_mutex_lock(&g_scrypt_mem_lock);
+	if (!logged) {
+		logged = 1;
+		do_log = 1;
+	}
+	pthread_mutex_unlock(&g_scrypt_mem_lock);
+	if (!do_log)
+		return;
+	if (mode == SCRYPT_PAGES_HUGE)
+		applog(LOG_NOTICE, "Scrypt scratchpad: using 2 MB pages");
+	else if (mode == SCRYPT_PAGES_THP)
+		applog(LOG_NOTICE, "Scrypt scratchpad: using transparent 2 MB pages");
+#if defined(WIN32)
+	else if (g_scrypt_page_err)
+		applog(LOG_NOTICE,
+			"Scrypt scratchpad: using 4 KB pages (large-page error %lu — grant \"Lock pages in memory\")",
+			g_scrypt_page_err);
+#endif
+	else
+		applog(LOG_NOTICE,
+			"Scrypt scratchpad: using 4 KB pages (2 MB pages raise hashrate)");
+}
+
+static void scrypt_try_memlock(void *p, size_t bytes)
+{
+	static int warned;
+
+	if (!g_scrypt_prepare_pages || !p || !bytes)
+		return;
+#if defined(__linux__) || defined(__APPLE__)
+	if (mlock(p, bytes) == 0)
+		return;
+	if (!warned) {
+		warned = 1;
+		applog(LOG_INFO,
+			"Scrypt scratchpad not locked in RAM (memlock limit). Pages can be swapped");
+	}
+#elif defined(WIN32)
+	{
+		HANDLE proc = GetCurrentProcess();
+		SIZE_T minws = 0, maxws = 0;
+
+		if (GetProcessWorkingSetSize(proc, &minws, &maxws)) {
+			SIZE_T add = (SIZE_T)bytes;
+			if (minws <= (SIZE_T)-1 - add && maxws <= (SIZE_T)-1 - add)
+				SetProcessWorkingSetSize(proc, minws + add, maxws + add);
+		}
+		if (VirtualLock(p, (SIZE_T)bytes))
+			return;
+		if (!warned) {
+			warned = 1;
+			applog(LOG_INFO,
+				"Scrypt scratchpad not locked in RAM (working set). Pages can be paged out");
+		}
+	}
+#else
+	(void)warned;
+#endif
+}
+
+#if defined(__linux__)
+static void scrypt_touch(void *p, size_t bytes, size_t stride)
+{
+	volatile unsigned char *b = (volatile unsigned char *)p;
+	size_t off;
+
+	if (!stride)
+		stride = 4096;
+	for (off = 0; off < bytes; off += stride)
+		b[off] = 0;
+}
+
+static int scrypt_linux_vma_huge(const void *ptr)
+{
+	FILE *f;
+	char line[320];
+	char prefix[80];
+	int in = 0;
+	int n;
+	unsigned long size_kb = 0, huge_kb = 0, kps = 0;
+
+	f = fopen("/proc/self/smaps", "r");
+	if (!f)
+		return 0;
+	n = snprintf(prefix, sizeof(prefix), "%" PRIxPTR "-", (uintptr_t)ptr);
+	if (n <= 0 || (size_t)n >= sizeof(prefix)) {
+		fclose(f);
+		return 0;
+	}
+	while (fgets(line, sizeof(line), f)) {
+		if (!in) {
+			if (strncmp(line, prefix, (size_t)n) == 0)
+				in = 1;
+			continue;
+		}
+		if (line[0] != ' ' && line[0] != '\t' && strchr(line, '-'))
+			break;
+		if (strncmp(line, "Size:", 5) == 0) {
+			if (sscanf(line, "Size: %lu", &size_kb) != 1)
+				size_kb = 0;
+		} else if (strncmp(line, "KernelPageSize:", 15) == 0) {
+			if (sscanf(line, "KernelPageSize: %lu", &kps) != 1)
+				kps = 0;
+		} else if (strncmp(line, "AnonHugePages:", 14) == 0) {
+			if (sscanf(line, "AnonHugePages: %lu", &huge_kb) != 1)
+				huge_kb = 0;
+		}
+	}
+	fclose(f);
+	if (kps >= 2048)
+		return 1;
+	return size_kb > 0 && huge_kb * 2 >= size_kb;
+}
+
+static unsigned char *scrypt_linux_hugepage(size_t bytes)
+{
+	void *p = mmap(NULL, bytes, PROT_READ | PROT_WRITE,
+		MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_HUGE_2MB, -1, 0);
+
+	if (p == MAP_FAILED)
+		return NULL;
+#ifdef MADV_DONTDUMP
+	madvise(p, bytes, MADV_DONTDUMP);
+#endif
+	return (unsigned char *)p;
+}
+
+/* Over-map, trim to a 2 MB alignment, then ask for transparent huge pages. */
+static unsigned char *scrypt_linux_thp(size_t bytes, int *huge)
+{
+	size_t map_bytes = bytes + SCRYPT_HUGEPAGE_SIZE;
+	void *raw;
+	uintptr_t base, aligned;
+	size_t lead, tail;
+
+	*huge = 0;
+	raw = mmap(NULL, map_bytes, PROT_READ | PROT_WRITE,
+		MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (raw == MAP_FAILED)
+		return NULL;
+	base = (uintptr_t)raw;
+	aligned = (base + SCRYPT_HUGEPAGE_SIZE - 1) & ~(uintptr_t)(SCRYPT_HUGEPAGE_SIZE - 1);
+	lead = (size_t)(aligned - base);
+	tail = map_bytes - lead - bytes;
+	if (lead)
+		munmap(raw, lead);
+	if (tail)
+		munmap((void *)(aligned + bytes), tail);
+#ifdef MADV_HUGEPAGE
+	madvise((void *)aligned, bytes, MADV_HUGEPAGE);
+#endif
+#ifdef MADV_DONTDUMP
+	madvise((void *)aligned, bytes, MADV_DONTDUMP);
+#endif
+	if (g_scrypt_prepare_pages) {
+		int collapsed = 0;
+
+		scrypt_touch((void *)aligned, bytes, SCRYPT_HUGEPAGE_SIZE);
+		if (!scrypt_linux_vma_huge((void *)aligned)) {
+			scrypt_touch((void *)aligned, bytes, 4096);
+#ifdef MADV_COLLAPSE
+			if (madvise((void *)aligned, bytes, MADV_COLLAPSE) == 0)
+				collapsed = 1;
+#endif
+		}
+		if (collapsed || scrypt_linux_vma_huge((void *)aligned))
+			*huge = 1;
+	}
+	return (unsigned char *)aligned;
+}
+#endif /* __linux__ */
+
+static unsigned char *scrypt_alloc_platform(size_t need, size_t *out_bytes, int *kind, int *mode)
+{
+	*kind = SCRYPT_KIND_MALLOC;
+	*mode = SCRYPT_PAGES_4K;
+	*out_bytes = need;
+
+#if defined(WIN32)
+	{
+		SIZE_T page = GetLargePageMinimum();
+		if (page >= 4096 && (page & (page - 1)) == 0) {
+			size_t bytes = (need + (size_t)page - 1) & ~((size_t)page - 1);
+			void *p = VirtualAlloc(NULL, bytes,
+				MEM_COMMIT | MEM_RESERVE | MEM_LARGE_PAGES, PAGE_READWRITE);
+			if (p) {
+				*kind = SCRYPT_KIND_VIRTUAL;
+				*mode = SCRYPT_PAGES_HUGE;
+				*out_bytes = bytes;
+				return (unsigned char *)p;
+			}
+			g_scrypt_page_err = (unsigned long)GetLastError();
+		}
+		{
+			size_t bytes = (need + 4095u) & ~(size_t)4095u;
+			void *p = VirtualAlloc(NULL, bytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+			if (p) {
+				*kind = SCRYPT_KIND_VIRTUAL;
+				*out_bytes = bytes;
+				return (unsigned char *)p;
+			}
+		}
+	}
+#endif
+
+#if defined(__linux__)
+	{
+		size_t bytes = (need + SCRYPT_HUGEPAGE_SIZE - 1)
+			& ~(size_t)(SCRYPT_HUGEPAGE_SIZE - 1);
+		unsigned char *p = NULL;
+		int huge = 0;
+
+		if (g_scrypt_prepare_pages) {
+			p = scrypt_linux_hugepage(bytes);
+			if (p) {
+				*kind = SCRYPT_KIND_MMAP;
+				*mode = SCRYPT_PAGES_HUGE;
+				*out_bytes = bytes;
+				return p;
+			}
+			p = scrypt_linux_thp(bytes, &huge);
+			if (p) {
+				*kind = SCRYPT_KIND_MMAP;
+				*mode = huge ? SCRYPT_PAGES_THP : SCRYPT_PAGES_4K;
+				*out_bytes = bytes;
+				return p;
+			}
+		}
+		p = (unsigned char *)aligned_alloc(SCRYPT_HUGEPAGE_SIZE, bytes);
+		if (p) {
+#ifdef MADV_HUGEPAGE
+			madvise(p, bytes, MADV_HUGEPAGE);
+#endif
+#ifdef MADV_DONTDUMP
+			madvise(p, bytes, MADV_DONTDUMP);
+#endif
+			*kind = SCRYPT_KIND_MALLOC;
+			*out_bytes = bytes;
+			return p;
+		}
+	}
+#endif
+
+#if defined(__APPLE__)
+	{
+		size_t bytes = (need + SCRYPT_HUGEPAGE_SIZE - 1)
+			& ~(size_t)(SCRYPT_HUGEPAGE_SIZE - 1);
+		void *p = MAP_FAILED;
+
+		if (g_scrypt_prepare_pages) {
+			p = mmap(NULL, bytes, PROT_READ | PROT_WRITE,
+				MAP_PRIVATE | MAP_ANON, VM_FLAGS_SUPERPAGE_SIZE_2MB, 0);
+			if (p != MAP_FAILED) {
+				*kind = SCRYPT_KIND_MMAP;
+				*mode = SCRYPT_PAGES_HUGE;
+				*out_bytes = bytes;
+				return (unsigned char *)p;
+			}
+		}
+		bytes = (need + 4095u) & ~(size_t)4095u;
+		p = NULL;
+		if (posix_memalign(&p, 4096, bytes) == 0 && p) {
+			*kind = SCRYPT_KIND_MALLOC;
+			*out_bytes = bytes;
+			return (unsigned char *)p;
+		}
+	}
+#endif
+
+	return (unsigned char *)malloc(need);
 }
 
 unsigned char *scrypt_buffer_alloc(int N)
@@ -589,64 +983,59 @@ unsigned char *scrypt_buffer_alloc(int N)
 
 unsigned char *scrypt_buffer_alloc_for(int N, int force_throughput)
 {
-	size_t size = scrypt_scratchpad_bytes_for(N, force_throughput);
+	size_t need = scrypt_scratchpad_bytes_for(N, force_throughput);
+	size_t bytes = need;
+	int kind = SCRYPT_KIND_MALLOC;
+	int mode = SCRYPT_PAGES_4K;
+	unsigned char *p = scrypt_alloc_platform(need, &bytes, &kind, &mode);
 
-#if defined(WIN32)
-	{
-		static volatile LONG lp_logged;
-		size_t aligned = (size + 4095) & ~(size_t)4095;
-		void *p = VirtualAlloc(NULL, aligned, MEM_COMMIT | MEM_RESERVE | MEM_LARGE_PAGES, PAGE_READWRITE);
-		if (p) {
-			g_scrypt_large_pages = 1;
-			if (InterlockedCompareExchange(&lp_logged, 1, 0) == 0)
-				applog(LOG_NOTICE, "Scrypt scratchpad: using large (2 MB) pages");
-			return (unsigned char *)p;
-		}
-		p = VirtualAlloc(NULL, aligned, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-		if (p) {
-			if (InterlockedCompareExchange(&lp_logged, 1, 0) == 0)
-				applog(LOG_NOTICE, "Scrypt scratchpad: using 4 KB pages");
-			return (unsigned char *)p;
-		}
+	if (!p)
+		return NULL;
+	if (scrypt_track(p, bytes, kind)) {
+		scrypt_note_pages(mode);
+		if (mode != SCRYPT_PAGES_HUGE)
+			scrypt_try_memlock(p, bytes);
+		return p;
 	}
-#endif
-
-#if defined(__linux__)
-	{
-		size_t aligned = (size + SCRYPT_HUGEPAGE_SIZE - 1)
-		               & ~(size_t)(SCRYPT_HUGEPAGE_SIZE - 1);
-		/* aligned_alloc() memory is released with free() (C11, glibc 2.16+). */
-		void *p = aligned_alloc(SCRYPT_HUGEPAGE_SIZE, aligned);
-		if (p) {
-#if defined(MADV_HUGEPAGE)
-			madvise(p, aligned, MADV_HUGEPAGE);
-#endif
-			return (unsigned char *)p;
-		}
-		/* fall through to malloc() if the aligned allocation failed */
-	}
-#endif
-
-#if defined(__APPLE__)
-	{
-		void *p = NULL;
-		size_t aligned = (size + 4095) & ~(size_t)4095;
-		if (posix_memalign(&p, 4096, aligned) == 0 && p)
-			return (unsigned char *)p;
-	}
-#endif
-
-	return (unsigned char *)malloc(size);
+	scrypt_discard(p, bytes, kind);
+	p = (unsigned char *)malloc(need);
+	if (!p)
+		return NULL;
+	if (!scrypt_track(p, need, SCRYPT_KIND_MALLOC))
+		return p;
+	scrypt_note_pages(SCRYPT_PAGES_4K);
+	return p;
 }
 
 void scrypt_buffer_free(unsigned char *buf, int N)
 {
+	int i;
+	int kind = 0;
+	size_t bytes = 0;
+
 	(void)N;
 	if (!buf)
 		return;
 
+	pthread_mutex_lock(&g_scrypt_mem_lock);
+	for (i = 0; i < SCRYPT_MEM_SLOTS; i++) {
+		if (g_scrypt_slots[i].used && g_scrypt_slots[i].ptr == buf) {
+			kind = g_scrypt_slots[i].kind;
+			bytes = g_scrypt_slots[i].bytes;
+			g_scrypt_slots[i].used = 0;
+			g_scrypt_slots[i].ptr = NULL;
+			g_scrypt_slots[i].bytes = 0;
+			g_scrypt_slots[i].kind = 0;
+			break;
+		}
+	}
+	pthread_mutex_unlock(&g_scrypt_mem_lock);
+
+	if (kind) {
+		scrypt_discard(buf, bytes, kind);
+		return;
+	}
 #if defined(WIN32)
-	/* malloc() fallback in scrypt_buffer_alloc_for is not VirtualAlloc memory. */
 	if (!VirtualFree(buf, 0, MEM_RELEASE))
 		free(buf);
 #else
@@ -838,6 +1227,87 @@ static void scrypt_1024_1_1_256_24way(const uint32_t *input,
 }
 #endif /* HAVE_SCRYPT_6WAY */
 
+#if defined(HAVE_SCRYPT_6WAY) && defined(HAVE_SCRYPT_3WAY) && defined(HAVE_SHA256_4WAY)
+static volatile uint32_t g_scrypt_tune_sink;
+
+static double scrypt_seconds(void)
+{
+	struct timeval tv;
+
+	gettimeofday(&tv, NULL);
+	return (double)tv.tv_sec + (double)tv.tv_usec * 1e-6;
+}
+
+/* One production batch: 24 hashes on the AVX2 path, 12 on the AVX path. */
+static double scrypt_bench_lane(int lanes, unsigned char *scratch, int N, uint32_t nonce)
+{
+	uint32_t input[24 * 20];
+	uint32_t output[24 * 8];
+	uint32_t midstate[8];
+	double t0, t1;
+	int hashes = (lanes >= 6) ? 24 : 12;
+
+	memset(input, 0, sizeof(input));
+	input[19] = nonce;
+	sha256_init(midstate);
+	sha256_transform(midstate, input, 0);
+	t0 = scrypt_seconds();
+	if (lanes >= 6)
+		scrypt_1024_1_1_256_24way(input, output, midstate, scratch, N);
+	else
+		scrypt_1024_1_1_256_12way(input, output, midstate, scratch, N);
+	t1 = scrypt_seconds();
+	g_scrypt_tune_sink = output[7];
+	if (t1 <= t0)
+		return 0.0;
+	return (double)hashes / (t1 - t0);
+}
+#endif
+
+int scrypt_lanes_tunable(void)
+{
+#if defined(HAVE_SCRYPT_6WAY) && defined(HAVE_SCRYPT_3WAY) && defined(HAVE_SHA256_4WAY)
+	if (opt_ryzen)
+		return 0;
+	return scrypt_best_throughput() >= 6 && sha256_use_4way();
+#else
+	return 0;
+#endif
+}
+
+int scrypt_measure_lanes(int N, double *hps_6way, double *hps_3way)
+{
+#if defined(HAVE_SCRYPT_6WAY) && defined(HAVE_SCRYPT_3WAY) && defined(HAVE_SHA256_4WAY)
+	unsigned char *scratch;
+	double a6, b6, a3, b3;
+
+	if (!hps_6way || !hps_3way)
+		return 0;
+	if (!scrypt_lanes_tunable() || N < 2 || (N & (N - 1)) != 0)
+		return 0;
+	scratch = scrypt_buffer_alloc_for(N, 6);
+	if (!scratch)
+		return 0;
+	(void)scrypt_bench_lane(6, scratch, N, 1);
+	(void)scrypt_bench_lane(3, scratch, N, 2);
+	a6 = scrypt_bench_lane(6, scratch, N, 3);
+	a3 = scrypt_bench_lane(3, scratch, N, 4);
+	b6 = scrypt_bench_lane(6, scratch, N, 5);
+	b3 = scrypt_bench_lane(3, scratch, N, 6);
+	scrypt_buffer_free(scratch, N);
+	if (a6 <= 0.0 || b6 <= 0.0 || a3 <= 0.0 || b3 <= 0.0)
+		return 0;
+	*hps_6way = (a6 + b6) * 0.5;
+	*hps_3way = (a3 + b3) * 0.5;
+	return 1;
+#else
+	(void)N;
+	(void)hps_6way;
+	(void)hps_3way;
+	return 0;
+#endif
+}
+
 /*
  * Runtime CPU-feature dispatch.
  *
@@ -867,6 +1337,8 @@ extern int scanhash_scrypt(int thr_id, struct work *work, uint32_t max_nonce, ui
 	int throughput = scrypt_best_throughput();
 	int i, j;
 
+	if (g_scrypt_lanes_override > 0)
+		throughput = g_scrypt_lanes_override;
 	if (opt_ryzen)
 		throughput = 3;
 	if (force_throughput > 0)

@@ -1251,6 +1251,10 @@ scrypt_core_3way_avx_loop2:
 	andl	%r8d, %eax
 	leaq	2(%rax, %rax, 2), %rax
 	shll	$7, %eax
+	/* Second 64 bytes of each block are read after salsa8. */
+	prefetcht0	64(%rsi, %rbp)
+	prefetcht0	64(%rsi, %rbx)
+	prefetcht0	64(%rsi, %rax)
 	pxor	0(%rsi, %rbp), %xmm0
 	pxor	16(%rsi, %rbp), %xmm1
 	pxor	32(%rsi, %rbp), %xmm2
@@ -1657,6 +1661,10 @@ scrypt_core_3way_xop_loop2:
 	andl	%r8d, %eax
 	leaq	2(%rax, %rax, 2), %rax
 	shll	$7, %eax
+	/* Second 64 bytes of each block are read after salsa8. */
+	prefetcht0	64(%rsi, %rbp)
+	prefetcht0	64(%rsi, %rbx)
+	prefetcht0	64(%rsi, %rax)
 	pxor	0(%rsi, %rbp), %xmm0
 	pxor	16(%rsi, %rbp), %xmm1
 	pxor	32(%rsi, %rbp), %xmm2
@@ -2160,6 +2168,10 @@ scrypt_core_3way_xmm_loop2:
 	andl	%r8d, %eax
 	leaq	2(%rax, %rax, 2), %rax
 	shll	$7, %eax
+	/* Second 64 bytes of each block are read after salsa8. */
+	prefetcht0	64(%rsi, %rbp)
+	prefetcht0	64(%rsi, %rbx)
+	prefetcht0	64(%rsi, %rax)
 	pxor	0(%rsi, %rbp), %xmm0
 	pxor	16(%rsi, %rbp), %xmm1
 	pxor	32(%rsi, %rbp), %xmm2
@@ -2728,6 +2740,19 @@ scrypt_core_6way_avx2_loop2:
 	andl	%r11d, %r10d
 	leaq	2(%r10, %r10, 2), %r10
 	shll	$8, %r10d
+	/* Second half of each 128-byte lane, consumed after salsa8. */
+	prefetcht0	4*32(%rsi, %rbp)
+	prefetcht0	6*32(%rsi, %rbp)
+	prefetcht0	4*32(%rsi, %rbx)
+	prefetcht0	6*32(%rsi, %rbx)
+	prefetcht0	4*32(%rsi, %rax)
+	prefetcht0	6*32(%rsi, %rax)
+	prefetcht0	4*32(%rsi, %r8)
+	prefetcht0	6*32(%rsi, %r8)
+	prefetcht0	4*32(%rsi, %r9)
+	prefetcht0	6*32(%rsi, %r9)
+	prefetcht0	4*32(%rsi, %r10)
+	prefetcht0	6*32(%rsi, %r10)
 	vmovdqa	0*32(%rsi, %rbp), %xmm4
 	vinserti128	$1, 0*32+16(%rsi, %r8), %ymm4, %ymm4
 	vmovdqa	1*32(%rsi, %rbp), %xmm5

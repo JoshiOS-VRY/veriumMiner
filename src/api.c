@@ -156,7 +156,7 @@ static char *getsummary(char *params)
 		"ALGO=%s;CPUS=%d;HPM=%.2f;HPM_AVG60=%.2f;HPM_AVG900=%.2f;"
 		"SOLV=%d;ACC=%d;REJ=%d;ACCPCT=%.2f;ACCMN=%.3f;DIFF=%.6f;"
 		"TEMP=%.1f;FAN=%d;FREQ=%d;UPTIME=%.0f;TS=%u;"
-		"POOL=%d;POOLSTAT=%s;WORKER=%s|",
+		"POOL=%d;POOLSTAT=%s;WORKER=%s;LANES=%d;HUGEPAGES=%d|",
 		PACKAGE_NAME, PACKAGE_VERSION, APIVERSION,
 		algo, opt_n_total_threads, stats_total_hps() * 60.0,
 		stats_ema_60s() * 60.0, stats_ema_900s() * 60.0,
@@ -164,7 +164,8 @@ static char *getsummary(char *params)
 		stats_accept_pct(), accps, net_diff > 0. ? net_diff : stratum_diff,
 		cpu.cpu_temp, cpu.cpu_fan, cpu.cpu_clock,
 		uptime, (uint32_t) ts,
-		g_pool_connected, g_pool_status, g_worker_name);
+		g_pool_connected, g_pool_status, g_worker_name,
+		scrypt_rom_lane_count(), scrypt_large_pages_active());
 	return buffer;
 }
 
@@ -207,12 +208,15 @@ static char *getmetrics(char *params)
 		"verium_pool_connected %d\n"
 		"verium_temp_celsius %.1f\n"
 		"verium_threads %d\n"
-		"verium_physical_cpus %d\n|",
+		"verium_physical_cpus %d\n"
+		"verium_scrypt_lanes %d\n"
+		"verium_large_pages %d\n|",
 		stats_total_hps(), stats_ema_60s(), stats_ema_900s(),
 		(unsigned)accepted_count, (unsigned)rejected_count,
 		stats_accept_pct(), (long)(time(NULL) - startup),
 		g_pool_connected, (double)cpu_temp(0),
-		opt_n_total_threads, tp ? tp->physical_cpus : opt_n_total_threads);
+		opt_n_total_threads, tp ? tp->physical_cpus : opt_n_total_threads,
+		scrypt_rom_lane_count(), scrypt_large_pages_active());
 	return buffer;
 }
 

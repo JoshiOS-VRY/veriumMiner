@@ -177,6 +177,14 @@ operations:
 - **ARM64 NEON 3-way scrypt** — Apple Silicon and Linux ARM64 use FireWorm71's
   validated NEON core (~384 MB/thread, 3 hashes per scan). Intel Macs use x86-64
   assembly when enabled; Apple Silicon uses C intrinsics (not GAS `.S` files).
+- **2 MB scratchpad pages** — Windows large-page allocations match the OS
+  large-page size. Linux tries reserved hugepages, then transparent huge pages.
+  macOS tries 2 MB superpages.
+- **Lane autotune** — AVX2 builds time 3-way against 6-way and keep the choice
+  with the higher machine hashrate, including how many scratchpads fit in RAM.
+  `--ryzen` still forces 3-way. `--no-autotune` keeps the CPUID default.
+- **Lookup prefetch** — x86-64 scrypt cores prefetch the second half of each ROM
+  block while Salsa20/8 runs, so the random pass spends less time waiting on DRAM.
 
 See [`docs/AUDIT_IMPLEMENTATION.md`](docs/AUDIT_IMPLEMENTATION.md) for the full
 audit-to-code mapping.
@@ -492,7 +500,7 @@ On x86-64 Linux, Windows, and Intel macOS, the miner detects CPU capabilities at
 
 - SSE2 → 1-way scrypt
 - AVX → 3-way scrypt
-- AVX2 → 6-way scrypt
+- AVX2 → 6-way scrypt, unless startup autotune picks 3-way (`--no-autotune` keeps 6-way, `--ryzen` forces 3-way)
 
 On **ARM64** (Apple Silicon, Linux ARM64), the build uses the **NEON 3-way**
 core (3 hashes per scan iteration, ~384 MB scratchpad per thread). Optional
