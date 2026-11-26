@@ -439,10 +439,8 @@ void parse_arg(int key, char *arg);
 void parse_config(json_t *config, char *ref);
 #if defined(_MSC_VER)
 #define VRM_NORETURN __declspec(noreturn)
-#elif defined(__GNUC__)
-#define VRM_NORETURN __attribute__((noreturn))
 #else
-#define VRM_NORETURN
+#define VRM_NORETURN __attribute__((noreturn))
 #endif
 VRM_NORETURN void proper_exit(int reason);
 void request_shutdown(int reason);

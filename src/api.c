@@ -467,8 +467,8 @@ static void setup_ipaccess()
 	char group;
 
 	buf = (char*) calloc(1, strlen(opt_api_allow) + 1);
-	if (unlikely(!buf))
-		proper_exit(1);//, "Failed to malloc ipaccess buf");
+	if (buf == NULL)
+		exit(1);
 
 	strcpy(buf, opt_api_allow);
 	ipcount = 1;
@@ -478,8 +478,10 @@ static void setup_ipaccess()
 
 	// possibly more than needed, but never less
 	ipaccess = (struct IP4ACCESS *) calloc(ipcount, sizeof(struct IP4ACCESS));
-	if (unlikely(!ipaccess))
-		proper_exit(1);//, "Failed to calloc ipaccess");
+	if (ipaccess == NULL) {
+		free(buf);
+		exit(1);
+	}
 
 	ips = 0;
 	ptr = buf;
