@@ -421,7 +421,7 @@ void get_currentalgo(char* buf, int sz)
     snprintf(buf, sz, "%s", algo_names[opt_algo]);
 }
 
-void proper_exit(int reason)
+VRM_NORETURN void proper_exit(int reason)
 {
 #ifdef WIN32
 	if (opt_background) {
@@ -2227,15 +2227,21 @@ static void *stratum_thread(void *userdata)
 				if (opt_retries >= 0 && ++failures > opt_retries) {
 					if (pools_failover()) {
 						char *nurl = strdup(pools_current_url());
-						free(stratum.url);
-						stratum.url = nurl;
-						free(rpc_url);
-						rpc_url = strdup(nurl);
-						short_url = strstr(rpc_url, "://");
-						short_url = short_url ? short_url + 3 : rpc_url;
-						applog(LOG_NOTICE, "Failover to backup pool %s", short_url);
-						stratum_need_reset = true;
-						failures = 0;
+						if (!nurl) {
+							applog(LOG_ERR, "out of memory during pool failover");
+						} else {
+							free(stratum.url);
+							stratum.url = nurl;
+							free(rpc_url);
+							rpc_url = strdup(nurl);
+							if (rpc_url) {
+								short_url = strstr(rpc_url, "://");
+								short_url = short_url ? short_url + 3 : rpc_url;
+								applog(LOG_NOTICE, "Failover to backup pool %s", short_url);
+							}
+							stratum_need_reset = true;
+							failures = 0;
+						}
 					} else {
 						applog(LOG_ERR, "...terminating workio thread");
 						tq_push(thr_info[work_thr_id].q, NULL);
@@ -2401,7 +2407,7 @@ static void show_version_and_exit(void)
 	exit(0);
 }
 
-static void show_usage_and_exit(int status)
+VRM_NORETURN static void show_usage_and_exit(int status)
 {
 	if (status)
 		fprintf(stderr, "Try `" PACKAGE_NAME " --help' for more information.\n");
@@ -2455,8 +2461,11 @@ void parse_arg(int key, char *arg)
 		if (p) {
 			/* ip:port */
 			if (p - arg > 0) {
+				char *allow = strdup(arg);
+				if (!allow)
+					show_usage_and_exit(1);
 				free(opt_api_allow);
-				opt_api_allow = strdup(arg);
+				opt_api_allow = allow;
 				opt_api_allow[p - arg] = '\0';
 			}
 			opt_api_listen = atoi(p + 1);
@@ -2634,6 +2643,8 @@ void parse_arg(int key, char *arg)
 				rpc_userpass = strdup(ap);
 				free(rpc_user);
 				rpc_user = (char*) calloc(p - ap + 1, 1);
+				if (!rpc_user)
+					show_usage_and_exit(1);
 				strncpy(rpc_user, ap, p - ap);
 				free(rpc_pass);
 				rpc_pass = strdup(++p);
@@ -2658,6 +2669,8 @@ void parse_arg(int key, char *arg)
 			}
 			free(rpc_url);
 			rpc_url = strdup(arg);
+			if (!rpc_url)
+				show_usage_and_exit(1);
 			strcpy(rpc_url + (ap - arg), hp);
 			short_url = &rpc_url[ap - arg];
 		} else {
@@ -2684,6 +2697,8 @@ void parse_arg(int key, char *arg)
 		rpc_userpass = strdup(arg);
 		free(rpc_user);
 		rpc_user = (char*) calloc(p - arg + 1, 1);
+		if (!rpc_user)
+			show_usage_and_exit(1);
 		strncpy(rpc_user, arg, p - arg);
 		free(rpc_pass);
 		rpc_pass = strdup(++p);

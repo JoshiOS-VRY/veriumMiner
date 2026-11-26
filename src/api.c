@@ -608,6 +608,10 @@ static void api()
 	}
 
 	apisock = (SOCKETTYPE*) calloc(1, sizeof(*apisock));
+	if (!apisock) {
+		applog(LOG_ERR, "API disabled: out of memory");
+		return;
+	}
 	*apisock = INVSOCK;
 
 	sleep(1);

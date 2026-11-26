@@ -158,7 +158,14 @@ void applog(int prio, const char *fmt, ...)
 		localtime_r(&now, &tm);
 
 		len = 96 + (int) strlen(fmt) + 2;
-		f = (char*) malloc(len);
+		f = (char*) malloc((size_t)len);
+		if (!f) {
+			vfprintf(stdout, fmt, ap);
+			fputc('\n', stdout);
+			fflush(stdout);
+			va_end(ap);
+			return;
+		}
 		snprintf(f, len, "%s[%d-%02d-%02d %02d:%02d:%02d]%s %s%s%s %s%s%s\n",
 			ts_color,
 			tm.tm_year + 1900,
@@ -1180,6 +1187,8 @@ char *stratum_recv_line(struct stratum_ctx *sctx)
 		goto out;
 	}
 	sret = strdup(tok);
+	if (!sret)
+		goto out;
 	len = (ssize_t) strlen(sret);
 
 	if (buflen > len + 1)

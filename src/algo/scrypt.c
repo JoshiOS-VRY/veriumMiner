@@ -1349,6 +1349,11 @@ extern int scanhash_scrypt(int thr_id, struct work *work, uint32_t max_nonce, ui
 		throughput *= 4;
 #endif
 
+	/* throughput is at least 1 on every shipped core. Zero the lanes first so
+	 * the midstate hash never reads an unwritten header if that changes. */
+	if (throughput < 1)
+		throughput = 1;
+	memset(data, 0, sizeof(data));
 	for (i = 0; i < throughput; i++)
 		for (j = 0; j < 19; j++)
 			data[i * 20 + j] = have_stratum

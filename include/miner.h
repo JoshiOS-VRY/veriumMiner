@@ -437,7 +437,14 @@ void tq_thaw(struct thread_q *tq);
 
 void parse_arg(int key, char *arg);
 void parse_config(json_t *config, char *ref);
-void proper_exit(int reason);
+#if defined(_MSC_VER)
+#define VRM_NORETURN __declspec(noreturn)
+#elif defined(__GNUC__)
+#define VRM_NORETURN __attribute__((noreturn))
+#else
+#define VRM_NORETURN
+#endif
+VRM_NORETURN void proper_exit(int reason);
 void request_shutdown(int reason);
 void applog_open_logfile(const char *path);
 
